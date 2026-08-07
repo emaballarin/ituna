@@ -129,3 +129,32 @@ def test_assertions():
         indices = np.array([[0, 1], [1, 0]])
         values = np.array([1.0, 2.0])
         sparse_to_dense(indices, values, (2, 2), symmetric=True)
+
+
+def test_store_and_load_torch_tensor_round_trip(tmp_path):
+    """store_data calls save_fn(path, data); torch.save takes (obj, f), so the adapter matters.
+
+    Nothing hashes torch tensors -- hash_object has no branch for them -- so tensors can
+    only reach store_data as a cached method output, never as a fit argument. That is why
+    the inverted call went unnoticed.
+    """
+    torch = pytest.importorskip("torch")
+
+    from ituna._backends import utils as backend_utils
+
+    tensor = torch.arange(6, dtype=torch.float32).reshape(2, 3)
+    target = tmp_path / "tensor_entry"
+    backend_utils.store_data(target, tensor)
+
+    assert target.with_suffix(".pt").exists()
+    assert torch.equal(backend_utils.load_data(target), tensor)
+
+
+def test_torch_tensors_are_reachable_only_as_cached_outputs():
+    """hash_object rejects tensors, so they cannot arrive through DataArguments."""
+    torch = pytest.importorskip("torch")
+
+    from ituna._backends import utils as backend_utils
+
+    with pytest.raises(TypeError, match="No hashing method"):
+        backend_utils.hash_object(torch.zeros(3))

@@ -535,7 +535,9 @@ if torch is not None:
     SUPPORTED_DATA_TYPES["torch"] = {
         "cls": torch.Tensor,
         "extension": ".pt",
-        "save_fn": torch.save,
+        # store_data calls save_fn(path, data), but torch.save takes (obj, f). Passing
+        # the bare function wrote the path object into a file named by the tensor.
+        "save_fn": lambda data_path, data: torch.save(data, data_path),
         "load_fn": torch.load,
     }
 
