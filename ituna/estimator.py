@@ -61,6 +61,31 @@ def check_non_deterministic(estimator: sklearn.base.TransformerMixin) -> bool:
     return False
 
 
+def resolve_random_states(
+    random_states: Union[int, List[int]],
+    non_deterministic: bool,
+) -> List[int]:
+    """Normalise the `random_states` parameter into the list of seeds to fit.
+
+    Kept out of `__init__` so that `random_states` is stored exactly as passed: sklearn requires
+    a constructor to leave its parameters untouched, and resolving eagerly would both make
+    `get_params` report something other than what was given and make a later `set_params`
+    silently ineffective.
+    """
+    if isinstance(random_states, np.ndarray):
+        random_states = random_states.tolist()
+
+    if isinstance(random_states, list) and non_deterministic:
+        raise ValueError("List of random states is not supported for non-deterministic estimators, provide integer instead")
+
+    if isinstance(random_states, int):
+        return generate_random_states(n=random_states)
+    elif isinstance(random_states, list):
+        return random_states
+    else:
+        raise ValueError("Random states must be an integer or a list of integers")
+
+
 def clone_with_seed(
     estimator: sklearn.base.BaseEstimator,
     random_state: int,
@@ -118,19 +143,15 @@ class ConsistencyEnsemble(
         if not non_deterministic:
             assert "random_state" in base_params, "Deterministic estimators must have a random_state parameter"
 
-        if isinstance(self.random_states, np.ndarray):
-            self.random_states = self.random_states.tolist()
+        # Validate eagerly, as before, but discard the result: `random_states` is a constructor
+        # parameter and is stored exactly as passed. Caching the resolved seeds here is what made
+        # a later `set_params(random_states=...)` silently ineffective.
+        resolve_random_states(random_states, non_deterministic)
 
-        if isinstance(self.random_states, list) and non_deterministic:
-            raise ValueError("List of random states is not supported for non-deterministic estimators, provide integer instead")
-
-        # convert random_states integer to list
-        if isinstance(self.random_states, int):
-            self._random_states = generate_random_states(n=self.random_states)
-        elif isinstance(self.random_states, list):
-            self._random_states = self.random_states
-        else:
-            raise ValueError("Random states must be an integer or a list of integers")
+    @property
+    def _random_states(self) -> List[int]:
+        """Seeds resolved from the current `random_states` parameter, on every access."""
+        return resolve_random_states(self.random_states, check_non_deterministic(self.estimator))
 
     def _init_estimators(self) -> List[sklearn.base.BaseEstimator]:
         estimators = []

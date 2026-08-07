@@ -295,3 +295,103 @@ def test_reference_selection(scores, expected_max_id):
     scores_with_diagonal = scores.copy()
     scores_with_diagonal[np.eye(scores_with_diagonal.shape[0], dtype=bool)] = 10.0
     _test_get_reference(scores_with_diagonal, expected_max_id)
+
+
+@pytest.mark.parametrize("consistent_embeddings", [(3, 100, 10, "permutation"), (3, 200, 8, "linear")], indirect=True)
+def test_transform_single_space_by_source_id(consistent_embeddings):
+    """A single embedding space can be aligned by source_id (regression: raised AttributeError)."""
+    X, params = consistent_embeddings
+    _, _, _, indeterminacy_type = params
+    transformer = metrics.PairwiseConsistency(indeterminacy=INDETERMINACY_MAP[indeterminacy_type]())
+    transformer.fit(X)
+
+    for source_id in range(len(X)):
+        aligned = transformer.transform([X[source_id]], source_id=source_id)
+        assert aligned.shape == X[source_id].shape
+        assert not np.any(np.isnan(aligned))
+        assert aligned.reference_id == transformer.reference_id_
+
+    # No i->i model is fitted by default, and aligning the reference to itself is the identity.
+    reference = transformer.reference_id_
+    assert np.allclose(transformer.transform([X[reference]], source_id=reference), X[reference])
+
+
+@pytest.mark.parametrize("consistent_embeddings", [(3, 100, 10, "permutation")], indirect=True)
+def test_transform_single_space_without_fitted_pair_raises_value_error(consistent_embeddings):
+    """With symmetric=True only j >= i is fitted; the reverse direction must fail explicitly."""
+    X, _ = consistent_embeddings
+    transformer = metrics.PairwiseConsistency(indeterminacy=metrics.Permutation(), symmetric=True)
+    transformer.fit(X)
+
+    unavailable = [i for i in range(len(X)) if i > transformer.reference_id_]
+    if not unavailable:
+        pytest.skip("reference is the last estimator, so every pair is available")
+    with pytest.raises(ValueError, match="No indeterminacy model found"):
+        transformer.transform([X[unavailable[0]]], source_id=unavailable[0])
+
+
+def _partially_consistent_embeddings(n_estimators=4, n_samples=400, n_features=6, seed=20260807):
+    """Embeddings that agree only in part, so the consistency score sits strictly below 1.0.
+
+    Perfectly consistent embeddings cannot detect diagonal inflation: with s = 1.0 the inflated
+    value (1 - f) * s + f is also 1.0, so the test would pass whatever the implementation did.
+    """
+    rng = np.random.default_rng(seed)
+    reference = rng.laplace(size=(n_samples, n_features)) / np.sqrt(2)
+    embeddings = []
+    for i in range(n_estimators):
+        if i % 2:
+            # recoverable: a signed permutation of the reference
+            transform = np.eye(n_features)[rng.permutation(n_features)] * rng.choice([-1.0, 1.0], size=n_features)
+        else:
+            # not recoverable under Permutation: a dense rotation
+            q, r = np.linalg.qr(rng.standard_normal((n_features, n_features)))
+            transform = q * np.sign(np.diag(r))
+        embeddings.append(reference @ transform)
+    return embeddings
+
+
+@pytest.mark.parametrize("symmetric", [True, False])
+def test_score_ignores_the_diagonal(symmetric):
+    """`include_diagonal` governs which models are fitted, never what the score averages.
+
+    A self-alignment scores exactly 1.0 under any indeterminacy class, so averaging it in would
+    report (1 - f) * s + f with f the diagonal's share of the fitted pairs -- 1 / n_estimators
+    when symmetric is False and 2 / (n_estimators + 1) when it is True.
+    """
+    X = _partially_consistent_embeddings()
+    scores = {}
+    for include_diagonal in (False, True):
+        transformer = metrics.PairwiseConsistency(
+            indeterminacy=metrics.Permutation(),
+            symmetric=symmetric,
+            include_diagonal=include_diagonal,
+        )
+        transformer.fit(X)
+        scores[include_diagonal] = transformer.score(X)
+
+        # the diagonal is still fitted, and so still available for alignment
+        n_pairs = len(transformer.indeterminacy_indices_)
+        if include_diagonal:
+            expected = len(X) * (len(X) + 1) / 2 if symmetric else len(X) * len(X)
+        else:
+            expected = len(X) * (len(X) - 1) / 2 if symmetric else len(X) * (len(X) - 1)
+        assert n_pairs == expected
+
+    # non-vacuous: with s == 1.0 the inflated value would also be 1.0 and this would prove nothing
+    assert scores[False] < 0.9
+    assert scores[True] == scores[False]
+
+    # and the inflation the fix removes is exactly (1 - f) * s + f
+    f = 2 / (len(X) + 1) if symmetric else 1 / len(X)
+    assert not np.isclose(scores[False], (1 - f) * scores[False] + f)
+
+
+@pytest.mark.parametrize("include_diagonal", [True, False])
+@pytest.mark.parametrize("consistent_embeddings", [(1, 100, 10, "permutation")], indirect=True)
+def test_score_is_nan_for_a_single_estimator(consistent_embeddings, include_diagonal):
+    """Consistency is undefined for one estimator, whatever `include_diagonal` says."""
+    X, _ = consistent_embeddings
+    transformer = metrics.PairwiseConsistency(indeterminacy=metrics.Permutation(), include_diagonal=include_diagonal)
+    transformer.fit(X)
+    assert np.isnan(transformer.score(X))

@@ -1,9 +1,9 @@
 import abc
-from typing import Generator, List, Literal, Optional, Tuple, Union
+from collections.abc import Generator
+from typing import List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import scipy.optimize
-import sklearn
 import sklearn.base
 import sklearn.linear_model
 import typeguard
@@ -396,29 +396,39 @@ class PairwiseConsistency(ConsistencyTransform):
             aligned_to_reference=aligned_to_reference,
         )
 
-    def _get_indeterminancy(
+    def _get_indeterminacy(
         self,
         source_id: int,
         target_id: int,
     ) -> sklearn.base.RegressorMixin:
-        """Get the indeterminancy model between source and target."""
+        """Get the fitted indeterminacy model mapping source into target."""
 
-        matches = np.where((self.indeterminancy_indices_ == np.array([source_id, target_id])).all(axis=1))[0]
-        assert len(matches) >= 1, f"Multiple indeterminancy models found for source {source_id} and target {target_id}, this should not happen"
+        matches = np.where((self.indeterminacy_indices_ == np.array([source_id, target_id])).all(axis=1))[0]
 
         if len(matches) == 0:
-            raise ValueError(f"No indeterminancy model found for source {source_id} and target {target_id}")
+            raise ValueError(
+                f"No indeterminacy model found for source {source_id} and target {target_id}. "
+                f"Pairs are fitted according to `symmetric` and `include_diagonal`: with "
+                f"symmetric=True only pairs (i, j) with j >= i are fitted, and the models are not "
+                f"invertible in general, so the reverse direction is unavailable."
+            )
+        assert len(matches) == 1, f"Multiple indeterminacy models found for source {source_id} and target {target_id}, this should not happen"
 
         return self.indeterminacies_[matches[0]]
 
     def _transform_single(self, X, source_id: int, **kwargs) -> PairwiseConsistencyArray:
-        aligned_X = self._align_to(
-            X,
-            self._get_indeterminancy(
-                source_id,
-                target_id=self.reference_id_,
-            ),
-        )
+        if source_id == self.reference_id_ and not self.include_diagonal:
+            # No i->i model is fitted unless include_diagonal is set, and aligning the reference
+            # to itself is the identity. `_transform_all` special-cases the reference the same way.
+            aligned_X = X
+        else:
+            aligned_X = self._align_to(
+                X,
+                self._get_indeterminacy(
+                    source_id,
+                    target_id=self.reference_id_,
+                ),
+            )
         return PairwiseConsistencyArray(
             aligned_X,
             embeddings=X,
@@ -437,12 +447,26 @@ class PairwiseConsistency(ConsistencyTransform):
         -------
         score : float
             Mean consistency score across all estimator pairs, ignoring the diagonal.
+
+            The diagonal is excluded whatever `include_diagonal` is set to. A self-alignment
+            scores exactly 1.0 under any indeterminacy class, so averaging it in would shift
+            the reported score to ``(1 - f) * s + f``, with ``f`` the diagonal's share of the
+            fitted pairs -- ``1 / n_estimators`` when ``symmetric`` is False and
+            ``2 / (n_estimators + 1)`` when it is True. `include_diagonal` governs which
+            models are fitted and hence alignment, not what the score is averaged over.
+
+            Returns NaN when no off-diagonal pair exists, i.e. for a single estimator, for
+            which consistency is undefined.
         """
         if len(X) != self.n_spaces_:
             raise ValueError("PairwiseConsistency.score() is not defined for a different number of embedding spaces than passed to fit()")
 
         result = self._transform_all(X, **kwargs)
-        return np.nanmean(result.scores[1])
+        indices, values = result.scores
+        off_diagonal = values[indices[:, 0] != indices[:, 1]] if len(indices) else values
+        if len(off_diagonal) == 0 or np.all(np.isnan(off_diagonal)):
+            return float(self._fill_value)
+        return float(np.nanmean(off_diagonal))
 
     def _iter_pairs(self) -> Generator[Tuple[int, int], None, None]:
         """Iterate over pairs of estimators according to the symmetric setting.

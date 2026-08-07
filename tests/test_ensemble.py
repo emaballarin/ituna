@@ -170,3 +170,43 @@ def test_gridsearchcv_compatibility(ica_data, estimator_cls, indeterminancy_cls)
         # Score should work
         score = grid_search.score(ica_data)
         assert isinstance(score, (int, float, np.number))
+
+
+def test_set_params_random_states_takes_effect():
+    """`random_states` is resolved on use, so set_params is not silently ignored."""
+    ensemble = ituna.ConsistencyEnsemble(
+        estimator=PCA(n_components=2),
+        consistency_transform=metrics.PairwiseConsistency(indeterminacy=metrics.Linear()),
+        random_states=3,
+    )
+    assert len(ensemble._init_estimators()) == 3
+
+    ensemble.set_params(random_states=7)
+    assert ensemble.get_params()["random_states"] == 7
+    assert len(ensemble._init_estimators()) == 7
+
+    ensemble.set_params(random_states=[0, 1])
+    assert len(ensemble._init_estimators()) == 2
+
+
+@pytest.mark.parametrize("random_states", [3, [0, 1, 2], np.arange(3)])
+def test_random_states_is_stored_exactly_as_passed(random_states):
+    """sklearn requires __init__ to leave its parameters untouched."""
+    ensemble = ituna.ConsistencyEnsemble(
+        estimator=PCA(n_components=2),
+        consistency_transform=metrics.PairwiseConsistency(indeterminacy=metrics.Linear()),
+        random_states=random_states,
+    )
+    stored = ensemble.get_params()["random_states"]
+    assert type(stored) is type(random_states)
+    assert np.all(stored == random_states)
+    assert len(ensemble._init_estimators()) == 3
+
+
+def test_invalid_random_states_still_rejected_at_construction():
+    with pytest.raises(ValueError, match="Random states must be an integer or a list of integers"):
+        ituna.ConsistencyEnsemble(
+            estimator=PCA(n_components=2),
+            consistency_transform=metrics.PairwiseConsistency(indeterminacy=metrics.Linear()),
+            random_states="five",
+        )
