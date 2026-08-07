@@ -101,6 +101,91 @@ class Permutation(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2Sco
         return X_permuted * self.signs_.reshape(1, -1)
 
 
+class Orthogonal(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2ScoreMixin):
+    """
+    Orthogonal indeterminacy - alignment restricted to O(L) by the Procrustes solution.
+
+    Used for models whose objective fixes the latent basis only up to a rotation and reflection,
+    such as an encoder trained to produce isotropic latents. `Linear` admits every invertible map
+    and so scores 1.0 on a pair of runs differing by a general element of GL(L), which is a real
+    violation of isotropy rather than a gauge move; this class tests agreement of *geometry* where
+    `Linear` tests agreement of *subspace*.
+
+    The alignment solves ``argmin_{Q in O(L)} ||X Q - y||_F``, whose maximiser is ``U V^T`` from the
+    SVD of ``X^T y`` (Schoenemann, Psychometrika 31(1), 1966). `X` and `y` are deliberately not
+    centred: translation freedom belongs to `Affine`, and centring here would silently test a larger
+    group than the one this class exists to isolate. A rank-deficient ``X^T y`` still yields an
+    orthogonal `Q`, since the SVD of a square matrix always returns full orthogonal factors; the
+    maximiser is merely non-unique in that case.
+
+    Interpreting the score
+    ----------------------
+    An isotropy-enforcing objective is usually a regulariser rather than a hard constraint, so the
+    residual gauge is O(L) only to the extent each run's latent covariance really is the identity.
+    Two runs that agree perfectly up to gauge, but whose covariances have drifted, are related by a
+    near-orthogonal map with non-unit singular values, and this class scores them below 1.0. That is
+    not a geometry disagreement -- it measures how far the isotropy objective was actually driven.
+
+    The consequence is that this score is not interpretable on its own: the gap between it and
+    `Linear` is. `Linear` near 1.0 with `Orthogonal` well below it says the runs share a subspace but
+    not a geometry, which is either an identifiability failure or slack isotropy, and the embeddings
+    alone cannot separate the two. Report both.
+
+    By the usual degrees-of-freedom heuristic this is also the less optimistically biased of the two
+    in-sample: `Linear` fits L free parameters per output where O(L) carries L(L-1)/2 in total. That
+    is a heuristic, not a theorem.
+    """
+
+    def __init__(self, *, allow_reflection: bool = True):
+        self.allow_reflection = allow_reflection
+
+    def fit(self, X, y):
+        """Solve the orthogonal Procrustes problem aligning X onto y."""
+        X = np.asarray(X)
+        y = np.asarray(y)
+
+        if X.ndim != 2 or y.ndim != 2:
+            raise ValueError(f"Orthogonal alignment requires two 2-dimensional arrays, got shapes {X.shape} and {y.shape}")
+        if X.shape != y.shape:
+            raise ValueError(
+                f"Orthogonal alignment is defined only for equal source and target shapes, got {X.shape} and {y.shape}. "
+                f"Procrustes over O(L) needs matching feature dimensions, and mismatched sample counts are a caller error "
+                f"here rather than something to truncate away."
+            )
+
+        U, _, Vt = np.linalg.svd(X.T @ y)
+        Q = U @ Vt
+        if not self.allow_reflection and np.linalg.det(Q) < 0:
+            U[:, -1] *= -1
+            Q = U @ Vt
+
+        self.orthogonal_ = Q
+        self.is_fitted_ = True
+        return self
+
+    def predict(self, X):
+        """Apply the fitted orthogonal transformation."""
+        if not getattr(self, "is_fitted_", False):
+            raise ValueError("Model must be fitted before prediction")
+
+        return np.asarray(X) @ self.orthogonal_
+
+    @property
+    def coef_(self) -> np.ndarray:
+        """The fitted matrix in scikit-learn's orientation, so that ``predict(X) == X @ coef_.T``.
+
+        `orthogonal_` is the canonical attribute and is right-multiplied, matching `Permutation`'s
+        `permutation_matrix_`. This transposed view exists because `LinearRegression.coef_` has shape
+        (n_targets, n_features) and predicts ``X @ coef_.T``; exposing the Procrustes matrix directly
+        as `coef_` would have given `Linear().coef_` and `Orthogonal().coef_` transposed meanings
+        under one name.
+        """
+        if not getattr(self, "is_fitted_", False):
+            raise AttributeError("Orthogonal instance is not fitted yet; `coef_` is available after calling fit")
+
+        return self.orthogonal_.T
+
+
 class Linear(sklearn.linear_model.LinearRegression):
     """
     Linear indeterminacy - handles linear transformation of components.

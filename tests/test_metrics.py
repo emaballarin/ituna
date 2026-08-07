@@ -397,6 +397,191 @@ def test_score_is_nan_for_a_single_estimator(consistent_embeddings, include_diag
     assert np.isnan(transformer.score(X))
 
 
+def _anisotropic(n_samples=200, n_features=5, seed=20260807):
+    """Anisotropic, non-symmetric source data.
+
+    Isotropic or symmetric test data cannot separate the Procrustes orientation `Q = U V^T` from its
+    transpose: both produce a valid orthogonal matrix and a plausible R2, and neither raises.
+    """
+    rng = np.random.default_rng(seed)
+    return rng.normal(size=(n_samples, n_features)) @ np.diag([3.0, 1.0, 0.5, 2.0, 0.2])
+
+
+def _random_orthogonal(n_features=5, seed=20260807):
+    """Draw an orthogonal matrix from the QR of a Gaussian."""
+    rng = np.random.default_rng(seed)
+    q, _ = np.linalg.qr(rng.normal(size=(n_features, n_features)))
+    return q
+
+
+def test_orthogonal_recovers_a_known_rotation():
+    """Exact recovery on a known Q0, which is what pins the orientation of the Procrustes solution."""
+    X = _anisotropic()
+    Q0 = _random_orthogonal()
+    orthogonal = metrics.Orthogonal().fit(X, X @ Q0)
+
+    np.testing.assert_allclose(orthogonal.orthogonal_, Q0, atol=1e-8)
+    np.testing.assert_allclose(orthogonal.score(X, X @ Q0), 1.0, atol=1e-12)
+
+
+def test_orthogonal_fits_an_orthogonal_matrix_on_arbitrary_data():
+    """The constraint must hold whatever the data, not only when a gauge relation exists."""
+    rng = np.random.default_rng(1)
+    X = _anisotropic()
+    y = rng.normal(size=X.shape)
+    orthogonal = metrics.Orthogonal().fit(X, y)
+
+    np.testing.assert_allclose(orthogonal.orthogonal_.T @ orthogonal.orthogonal_, np.eye(X.shape[1]), atol=1e-10)
+
+
+def test_orthogonal_prediction_is_an_isometry():
+    """An orthogonal map preserves the Frobenius norm; this is the cheapest check that it really is one."""
+    rng = np.random.default_rng(2)
+    X = _anisotropic()
+    orthogonal = metrics.Orthogonal().fit(X, rng.normal(size=X.shape))
+
+    np.testing.assert_allclose(np.linalg.norm(orthogonal.predict(X), "fro"), np.linalg.norm(X, "fro"), rtol=1e-12)
+
+
+def test_orthogonal_reflection_handling():
+    """allow_reflection selects between O(L) and SO(L), and the difference must be visible in the score."""
+    X = _anisotropic()
+    reflection = np.diag([1.0, 1.0, 1.0, 1.0, -1.0])
+    y = X @ reflection
+
+    with_reflection = metrics.Orthogonal(allow_reflection=True).fit(X, y)
+    np.testing.assert_allclose(with_reflection.orthogonal_, reflection, atol=1e-8)
+    np.testing.assert_allclose(with_reflection.score(X, y), 1.0, atol=1e-12)
+
+    rotations_only = metrics.Orthogonal(allow_reflection=False).fit(X, y)
+    np.testing.assert_allclose(np.linalg.det(rotations_only.orthogonal_), 1.0, atol=1e-8)
+    assert rotations_only.score(X, y) < 1.0
+
+
+def test_orthogonal_is_strictly_stronger_than_linear():
+    """The justification for the class: a general GL(L) move is a real violation, and only Orthogonal sees it.
+
+    `A` is pinned deliberately. "Invertible, non-orthogonal, well-conditioned" does not imply the
+    threshold -- at cond(A) = 1.2 the score is 0.9943 and at 1.05 it is 0.9995, both of which would
+    pass a laxer bound while proving nothing. The bound stays; the matrix is what gets fixed.
+    """
+    X = _anisotropic()
+    A = np.diag([3.0, 1.0, 1.0, 1.0, 1.0])
+    y = X @ A
+
+    np.testing.assert_allclose(metrics.Linear().fit(X, y).score(X, y), 1.0, atol=1e-10)
+    assert metrics.Orthogonal().fit(X, y).score(X, y) < 0.99
+
+
+def test_orthogonal_separation_survives_out_of_sample():
+    """Both classes fit in-sample, so the separation must be shown to be data and not the constraint."""
+    X = _anisotropic()
+    y = X @ np.diag([3.0, 1.0, 1.0, 1.0, 1.0])
+    split = X.shape[0] // 2
+
+    linear = metrics.Linear().fit(X[:split], y[:split]).score(X[split:], y[split:])
+    orthogonal = metrics.Orthogonal().fit(X[:split], y[:split]).score(X[split:], y[split:])
+
+    assert linear > 0.99
+    assert orthogonal < 0.99
+
+
+@pytest.mark.parametrize("allow_reflection", [True, False])
+def test_orthogonal_sklearn_clone_round_trip(allow_reflection):
+    """`sklearn.base.clone` reconstructs from get_params, so __init__ must store its argument verbatim."""
+    import sklearn.base
+
+    original = metrics.Orthogonal(allow_reflection=allow_reflection)
+    assert sklearn.base.clone(original).get_params()["allow_reflection"] is allow_reflection
+    assert original.set_params(allow_reflection=not allow_reflection).allow_reflection is (not allow_reflection)
+
+
+def test_orthogonal_never_beats_linear():
+    """A theorem, and therefore the cheapest structural check available.
+
+    `Linear` is OLS with fit_intercept=False: it decouples across output columns and minimises each
+    column's residual over all of R^L. Since O(L) is a subset of R^{L x L}, no orthogonal map can beat
+    it on any single column, and multioutput="uniform_average" inherits the inequality. A violation
+    means a transposed `X^T y`, a reversed orientation, or a stray centring step -- each of which
+    otherwise yields a valid orthogonal matrix, a plausible R2, and no exception.
+    """
+    rng = np.random.default_rng(20260807)
+    for trial in range(50):
+        n_samples = int(rng.integers(6, 60))
+        n_features = int(rng.integers(2, 6))
+        X = rng.normal(size=(n_samples, n_features)) * rng.uniform(0.1, 5.0, size=n_features)
+        if trial % 3 == 0:
+            q, _ = np.linalg.qr(rng.normal(size=(n_features, n_features)))
+            y = X @ q
+        else:
+            y = rng.normal(size=(n_samples, n_features)) * rng.uniform(0.1, 5.0, size=n_features)
+
+        assert metrics.Linear().fit(X, y).score(X, y) >= metrics.Orthogonal().fit(X, y).score(X, y)
+
+
+def test_orthogonal_coef_follows_the_sklearn_orientation():
+    """`coef_` is the transposed view, so that predict(X) == X @ coef_.T as everywhere else in sklearn."""
+    X = _anisotropic()
+    orthogonal = metrics.Orthogonal().fit(X, X @ _random_orthogonal())
+
+    np.testing.assert_allclose(orthogonal.coef_, orthogonal.orthogonal_.T, atol=0.0)
+    np.testing.assert_allclose(orthogonal.predict(X), X @ orthogonal.coef_.T, atol=1e-12)
+
+
+def test_orthogonal_coef_raises_before_fitting():
+    """An unfitted estimator must not present a `coef_`, which is what check_is_fitted keys on."""
+    with pytest.raises(AttributeError, match="not fitted"):
+        metrics.Orthogonal().coef_
+
+
+def test_orthogonal_predict_raises_before_fitting():
+    """Predicting before fitting is a caller error and must say so."""
+    with pytest.raises(ValueError, match="must be fitted"):
+        metrics.Orthogonal().predict(_anisotropic())
+
+
+@pytest.mark.parametrize(
+    "X,y,message",
+    [
+        (np.zeros((10, 3)), np.zeros((10, 4)), "equal source and target shapes"),
+        (np.zeros((10, 3)), np.zeros((8, 3)), "equal source and target shapes"),
+        (np.zeros(10), np.zeros((10, 3)), "2-dimensional"),
+        (np.zeros((10, 3)), np.zeros(10), "2-dimensional"),
+    ],
+)
+def test_orthogonal_boundary_errors_raise_value_error(X, y, message):
+    """ValueError, never AssertionError: the suite is required to pass under `python -O`, which strips assert."""
+    with pytest.raises(ValueError, match=message):
+        metrics.Orthogonal().fit(X, y)
+
+
+def test_orthogonal_drops_into_pairwise_consistency():
+    """End-to-end through the transform, which is also where @typeguard.typechecked gets a say."""
+    X = _partially_consistent_embeddings()
+    transformer = metrics.PairwiseConsistency(indeterminacy=metrics.Orthogonal())
+    transformer.fit(X)
+
+    score = transformer.score(X)
+    assert np.isfinite(score)
+    np.testing.assert_array_equal(np.asarray(transformer.transform(X)).shape, X[0].shape)
+
+
+def test_orthogonal_detects_a_gl_move_that_linear_cannot():
+    """The same separation as the unit test, but through the transform a consumer actually calls."""
+    reference = _partially_consistent_embeddings(n_estimators=1)[0]
+    q, _ = np.linalg.qr(np.random.default_rng(3).normal(size=(reference.shape[1], reference.shape[1])))
+    contaminated = [reference, reference @ q, reference @ np.diag([3.0, 1.0, 1.0, 1.0, 1.0, 1.0])]
+
+    scores = {}
+    for name, indeterminacy in (("linear", metrics.Linear()), ("orthogonal", metrics.Orthogonal())):
+        transformer = metrics.PairwiseConsistency(indeterminacy=indeterminacy)
+        transformer.fit(contaminated)
+        scores[name] = transformer.score(contaminated)
+
+    np.testing.assert_allclose(scores["linear"], 1.0, atol=1e-10)
+    assert scores["orthogonal"] < 0.8
+
+
 def test_r2_score_mixin_does_not_depend_on_a_transitive_import():
     """`sklearn.metrics` must be imported explicitly, not inherited from whatever else pulled it in.
 
