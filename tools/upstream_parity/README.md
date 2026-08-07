@@ -13,13 +13,26 @@ Anyone adopting the fork needs to know whether numbers they have already compute
 python tools/upstream_parity/compare.py                    # vs upstream main at 5aada31, offline
 python tools/upstream_parity/compare.py --mode upstream    # clone from upstream instead (needs network)
 python tools/upstream_parity/compare.py --ref 4858961      # compare against the feature-branch merge
+python tools/upstream_parity/compare.py --verbose          # list every explained difference
 python tools/upstream_parity/compare.py --keep             # leave the temporary trees for inspection
 ```
 
-Exit `0` — the path users take agrees. `1` — it does not. `3` — the comparison was vacuous and its
-result must not be read as a pass.
+Exit `0` — every difference is accounted for by a verified mechanism. `1` — at least one is not, or
+a cell could not be compared. `3` — the comparison was vacuous and its result must not be read as a
+pass. Takes about ten seconds.
 
-Takes about ten seconds.
+## The verdict rule
+
+A difference is a failure **unless it is explained by a named mechanism, and the mechanism is checked
+rather than asserted**. Two are recognised:
+
+- **`source_id`** — counted as explained only when the reference side really is the `AttributeError`
+  below. If upstream ever starts returning a value there, this stops being a repaired crash and
+  becomes a real difference, and the check will say so.
+- **the diagonal**, on `include_diagonal=True` — counted as explained only when the observed pair
+  satisfies the identity below *exactly*, per cell. A drift in that relation fails.
+
+Everything else fails, including a cell that could not be compared in both trees.
 
 ## Method
 
@@ -48,14 +61,14 @@ their resolved path, their `metrics.py` digest and their numpy version alongside
 Against upstream `5aada31`, on Python 3.14 with numpy 2.5.0. Arms confirmed distinct
 (`metrics.py` sha256 `2e0f1230…` reference, `e6aebe3b…` fork).
 
-| | cells | agree | differ | incomparable |
-| --- | --- | --- | --- | --- |
-| whole battery | 192 | 134 | 58 | 0 |
-| **`include_diagonal=False`** | **96** | **80** | 16 | **0** |
+| | cells | identical | explained | unexplained | incomparable |
+| --- | --- | --- | --- | --- | --- |
+| whole battery | 192 | 134 | 58 | **0** | 0 |
+| **`include_diagonal=False`** | **96** | 80 | 16 | **0** | 0 |
 
+Of the 58 explained, 42 are the diagonal identity and 16 are the repaired `source_id` crash.
 **Every numeric field agrees across all 96 configurations** on the default path — score,
-`reference_id`, mean embedding, pair indices, per-pair scores. The 16 that differ do so in exactly
-one field, and the two families of difference are both accounted for:
+`reference_id`, mean embedding, pair indices, per-pair scores. The two mechanisms:
 
 **1. `source_id` — a repaired crash.** Upstream's `PairwiseConsistency._get_indeterminancy` reads an
 attribute name that `_fit` never sets, so the documented call
