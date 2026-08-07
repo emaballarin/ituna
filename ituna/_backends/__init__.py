@@ -1,4 +1,5 @@
 import copy
+import json
 from typing import Optional
 
 from ituna._backends import utils
@@ -15,6 +16,21 @@ _BACKENDS = {
     "disk_cache_distributed": DiskCacheDistributedBackend,
     "datajoint": DatajointBackend,
 }
+
+
+# Backends worth reusing across calls: DatajointBackend opens a database connection and
+# declares its schema in __init__. Routing resolves a backend per (method, model_class),
+# so one fit/transform/score sequence builds several, and without reuse that is a fresh
+# connection and schema declaration for each. The remaining backends only assign
+# attributes and mkdir, so they stay unpooled and always observe current disk state.
+_REUSABLE_BACKENDS = ("datajoint",)
+
+_BACKEND_INSTANCES = {}
+
+
+def clear_backend_cache():
+    """Drop pooled backend instances, releasing the external resources they hold."""
+    _BACKEND_INSTANCES.clear()
 
 
 def _build_backend(backend_name: str, backend_kwargs: Optional[dict] = None):
@@ -41,6 +57,13 @@ def _build_backend(backend_name: str, backend_kwargs: Optional[dict] = None):
         if config.CACHE_DIR:
             kwargs["cache_dir"] = config.CACHE_DIR
         kwargs.update(backend_kwargs)
+
+    if backend_name in _REUSABLE_BACKENDS:
+        cache_key = (backend_name, json.dumps(kwargs, sort_keys=True, default=repr))
+        if cache_key not in _BACKEND_INSTANCES:
+            _BACKEND_INSTANCES[cache_key] = backend_factory(**kwargs)
+        return _BACKEND_INSTANCES[cache_key]
+
     return backend_factory(**kwargs)
 
 
@@ -66,6 +89,7 @@ def get_backend(backend_name: str = None, method: str = None, model_class=None):
 
 __all__ = [
     "get_backend",
+    "clear_backend_cache",
     "Backend",
     "utils",
     "DiskCacheBackend",

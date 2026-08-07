@@ -274,3 +274,49 @@ def test_tutorial_route_pattern_distributed_fit_disk_cache_transforms(ica_data, 
             # Transform caching route should create transform cache files.
             transform_cache_files = list((cache_dir / "transforms").glob("*"))
             assert len(transform_cache_files) >= len(ensemble.estimators_)
+
+
+def test_datajoint_backend_is_reused_per_configuration(monkeypatch):
+    """Constructing DatajointBackend connects and declares a schema; routing must not repeat that."""
+    constructions = []
+
+    class StubBackend:
+        def __init__(self, **kwargs):
+            constructions.append(kwargs)
+
+    monkeypatch.setitem(ituna._backends._BACKENDS, "datajoint", StubBackend)
+    ituna._backends.clear_backend_cache()
+    try:
+        with config.config_context(
+            DEFAULT_BACKEND="datajoint",
+            CACHE_DIR="cache_a",
+            BACKEND_KWARGS={"schema_name": "schema_a"},
+            BACKEND_ROUTES={},
+        ):
+            first = ituna._backends.get_backend()
+            assert ituna._backends.get_backend() is first
+            assert ituna._backends.get_backend(method="transform", model_class=PCA) is first
+            assert len(constructions) == 1
+
+        with config.config_context(
+            DEFAULT_BACKEND="datajoint",
+            CACHE_DIR="cache_b",
+            BACKEND_KWARGS={"schema_name": "schema_a"},
+            BACKEND_ROUTES={},
+        ):
+            # A different cache dir is a different backend, not a cache hit.
+            assert ituna._backends.get_backend() is not first
+            assert len(constructions) == 2
+    finally:
+        ituna._backends.clear_backend_cache()
+
+
+def test_disk_backends_are_not_pooled(tmp_path):
+    """Cheap backends stay unpooled so they always observe current disk state."""
+    with config.config_context(
+        DEFAULT_BACKEND="disk_cache",
+        CACHE_DIR=tmp_path,
+        BACKEND_KWARGS={},
+        BACKEND_ROUTES={},
+    ):
+        assert ituna._backends.get_backend() is not ituna._backends.get_backend()
