@@ -1,12 +1,15 @@
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Callable
 import contextlib
 from functools import partial
 import hashlib
 import importlib
 import json
+import os
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
+import uuid
 import warnings
 
 from filelock import FileLock
@@ -386,6 +389,28 @@ def file_lock_context(lock_file: Union[str, Path], timeout: Optional[float] = No
         yield
 
 
+def _atomic_write(target_path: Path, save_fn: Callable, data: Any):
+    """Write via a sibling temporary file and rename it into place.
+
+    Both caches skip work whose output file already exists, so a writer interrupted
+    part-way -- a crash, a kill, a full disk -- would otherwise leave a truncated file
+    that every later existence check reads as a finished entry and never rewrites.
+    ``os.replace`` is atomic within a filesystem, so the destination only ever appears
+    complete.
+
+    The temporary name keeps the target's extension last, because some writers derive
+    behaviour from it -- ``np.save`` appends ``.npy`` unless the name already ends in
+    it, which would leave nothing at the path being renamed. A uuid keeps concurrent
+    writers in the same process off each other's temporary file.
+    """
+    tmp_path = target_path.with_name(f"{target_path.stem}.{uuid.uuid4().hex}.tmp{target_path.suffix}")
+    try:
+        save_fn(tmp_path, data)
+        os.replace(tmp_path, target_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
 @typeguard.typechecked
 def load_model(
     model_path: Union[str, Path],
@@ -459,7 +484,11 @@ def store_model_pickle(
         return
 
     with file_lock_context(model_path):
-        joblib.dump(model, model_path)
+        # Re-check under the lock: another writer may have finished while we waited.
+        if model_path.exists() and not overwrite:
+            return
+        # joblib.dump takes (value, filename); _atomic_write passes (path, data).
+        _atomic_write(model_path, lambda path, obj: joblib.dump(obj, path), model)
 
 
 def save_json(data_path: Union[str, Path], data: dict):
@@ -526,7 +555,10 @@ def store_data(
                 # if the file exists and we're not overwriting, return
                 return
             with file_lock_context(data_path):
-                data_type_info["save_fn"](data_path, data)
+                # Re-check under the lock: another writer may have finished while we waited.
+                if data_path.exists() and not overwrite:
+                    return
+                _atomic_write(data_path, data_type_info["save_fn"], data)
             return
 
     # If no supported type found
