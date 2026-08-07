@@ -14,21 +14,31 @@ jupytext = pytest.importorskip("jupytext")
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-# Pairs committed in a diverged state. Resolving one requires the author's intent,
-# not a mechanical sync: the notebook holds the published outputs, so adopting the
-# .py code without re-executing would show readers code that did not produce the
-# results underneath it.
-KNOWN_DRIFT = {
-    "docs/tutorials/core": (
-        "core.py has no jupytext header and is hand-maintained; it differs from core.ipynb "
-        "only in import grouping and call formatting, with no semantic or output impact."
-    ),
-    "docs/tutorials/backends": (
-        "backends.ipynb and backends.py were added in the same commit already disagreeing: "
-        "random_state 420 vs 42, FastICA max_iter 1000/1001 vs 500/501, a parallel-training cell "
-        "present only in the notebook, and a config-reset cell present only in the .py."
-    ),
-}
+# docs/tutorials/core and docs/tutorials/backends were introduced with their .py and
+# .ipynb already disagreeing. Both .py files were regenerated from their notebook,
+# because the notebook carries the outputs Jupyter Book publishes and re-executing to
+# match the .py was not possible here. What that discarded, for the record:
+#
+#   core.py     -- had no jupytext header at all and was hand-maintained. Differences
+#                  were confined to import grouping and call formatting, so nothing of
+#                  substance was lost.
+#
+#   backends.py -- used random_state=42 (notebook: 420) and FastICA max_iter=500/501
+#                  (notebook: 1000/1001), and its stale header claimed the "ituna"
+#                  kernel on Python 3.10.19 while the notebook records
+#                  "Python 3 (ipykernel)" on 3.12.12. It also ended with a cell absent
+#                  from the notebook:
+#
+#                      # Reset to defaults for clean state
+#                      ituna.config.DEFAULT_BACKEND = "in_memory"
+#                      ituna.config.BACKEND_KWARGS = {}
+#                      ituna.config.BACKEND_ROUTES = {}
+#                      ituna.config.CACHE_DIR = "backend_store"
+#
+#                  That cell is worth restoring in the notebook: the tutorial assigns
+#                  ituna.config global state throughout and otherwise leaves it dirty
+#                  for anything the reader runs afterwards. Adding it needs a re-execution
+#                  pass, so it is left to the notebook's author.
 
 
 def _paired_notebooks():
@@ -37,8 +47,7 @@ def _paired_notebooks():
         if not notebook.with_suffix(".py").exists():
             continue
         key = notebook.relative_to(REPO_ROOT).with_suffix("").as_posix()
-        marks = [pytest.mark.xfail(strict=True, reason=KNOWN_DRIFT[key])] if key in KNOWN_DRIFT else []
-        params.append(pytest.param(notebook, id=key, marks=marks))
+        params.append(pytest.param(notebook, id=key))
     return params
 
 

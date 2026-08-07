@@ -8,9 +8,9 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.1
+#       jupytext_version: 1.19.5
 #   kernelspec:
-#     display_name: ituna
+#     display_name: Python 3 (ipykernel)
 #     language: python
 #     name: python3
 #   language_info:
@@ -22,7 +22,7 @@
 #     name: python
 #     nbconvert_exporter: python
 #     pygments_lexer: ipython3
-#     version: 3.10.19
+#     version: 3.12.12
 # ---
 
 # %% [markdown]
@@ -49,7 +49,7 @@ X, _ = make_blobs(
     n_features=20,
     centers=6,
     cluster_std=2.0,
-    random_state=42,
+    random_state=420,
 )
 
 # %% [markdown]
@@ -77,7 +77,7 @@ print("Updated config:", ituna.config.get_config())
 # %%
 # Create and fit an ensemble - models will be cached
 ensemble = ituna.ConsistencyEnsemble(
-    estimator=FastICA(n_components=5, max_iter=500),
+    estimator=FastICA(n_components=5, max_iter=1000),
     consistency_transform=ituna.metrics.PairwiseConsistency(
         indeterminacy=ituna.metrics.Permutation(),
     ),
@@ -93,7 +93,7 @@ print(f"Score: {ensemble.score(X):.4f}")
 # Second run: loads from cache (much faster)
 print("\nSecond run (loading from cache):")
 ensemble2 = ituna.ConsistencyEnsemble(
-    estimator=FastICA(n_components=5, max_iter=500),
+    estimator=FastICA(n_components=5, max_iter=1000),
     consistency_transform=ituna.metrics.PairwiseConsistency(
         indeterminacy=ituna.metrics.Permutation(),
     ),
@@ -115,7 +115,7 @@ print(f"Score: {ensemble2.score(X):.4f}")
 # %%
 # Changing max_iter creates a new cache entry
 ensemble3 = ituna.ConsistencyEnsemble(
-    estimator=FastICA(n_components=5, max_iter=501),  # Different max_iter!
+    estimator=FastICA(n_components=5, max_iter=1001),  # Different max_iter!
     consistency_transform=ituna.metrics.PairwiseConsistency(
         indeterminacy=ituna.metrics.Permutation(),
     ),
@@ -188,13 +188,14 @@ print("Distributed config:", ituna.config.get_config())
 # %%
 # Train with 10 random states in parallel
 ensemble_parallel = ituna.ConsistencyEnsemble(
-    estimator=FastICA(n_components=5, max_iter=500),
+    estimator=FastICA(n_components=5, max_iter=1000),
     consistency_transform=ituna.metrics.PairwiseConsistency(
         indeterminacy=ituna.metrics.Permutation(),
     ),
     random_states=10,
 )
 
+# NOTE: this will only train 7 models because 3 models have already been trained earlier with the same configuration
 ensemble_parallel.fit(X)
 print(f"Score: {ensemble_parallel.score(X):.4f}")
 
@@ -214,6 +215,19 @@ ituna.config.BACKEND_KWARGS = {
 
 # When you call fit(), it will print the worker command
 # and wait for external workers to complete the training
+
+# %%
+# Train with 10 random states in parallel
+ensemble_parallel = ituna.ConsistencyEnsemble(
+    estimator=FastICA(n_components=5, max_iter=1001), # Different max_iter!
+    consistency_transform=ituna.metrics.PairwiseConsistency(
+        indeterminacy=ituna.metrics.Permutation(),
+    ),
+    random_states=10,
+)
+
+ensemble_parallel.fit(X)
+print(f"Score: {ensemble_parallel.score(X):.4f}")
 
 # %% [markdown]
 # ### CLI Worker Commands
@@ -425,10 +439,3 @@ print("Exists now:", transform_cache_dir.exists())
 # ```
 #
 # This pattern gives distributed/manual estimator training while keeping consistency + transform workloads cache-friendly during collection.
-
-# %%
-# Reset to defaults for clean state
-ituna.config.DEFAULT_BACKEND = "in_memory"
-ituna.config.BACKEND_KWARGS = {}
-ituna.config.BACKEND_ROUTES = {}
-ituna.config.CACHE_DIR = "backend_store"

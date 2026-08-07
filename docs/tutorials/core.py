@@ -1,3 +1,30 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: tags
+#     formats: ipynb,py:percent
+#     notebook_metadata_filter: kernelspec,language_info,jupytext
+#     text_representation:
+#       extension: .py
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.19.5
+#   kernelspec:
+#     display_name: ituna
+#     language: python
+#     name: python3
+#   language_info:
+#     codemirror_mode:
+#       name: ipython
+#       version: 3
+#     file_extension: .py
+#     mimetype: text/x-python
+#     name: python
+#     nbconvert_exporter: python
+#     pygments_lexer: ipython3
+#     version: 3.10.19
+# ---
+
 # %% [markdown]
 # # Core Concepts
 #
@@ -10,8 +37,7 @@
 
 # %%
 import numpy as np
-from sklearn.decomposition import FastICA
-from sklearn.decomposition import PCA
+from sklearn.decomposition import FastICA, PCA
 
 import ituna
 
@@ -61,15 +87,13 @@ n_sources = 5
 
 # Create independent sources
 t = np.linspace(0, 10, n_samples)
-sources = np.column_stack(
-    [
-        np.sin(2 * t),  # Sinusoid
-        np.sign(np.sin(3 * t)),  # Square wave
-        np.random.laplace(size=n_samples),  # Super-Gaussian
-        np.random.uniform(-1, 1, n_samples),  # Uniform
-        (t % 1) - 0.5,  # Sawtooth
-    ]
-)
+sources = np.column_stack([
+    np.sin(2 * t),           # Sinusoid
+    np.sign(np.sin(3 * t)),  # Square wave
+    np.random.laplace(size=n_samples),  # Super-Gaussian
+    np.random.uniform(-1, 1, n_samples),  # Uniform
+    (t % 1) - 0.5,           # Sawtooth
+])
 
 # Mix the sources
 mixing_matrix = np.random.randn(n_sources, n_sources)
@@ -131,7 +155,7 @@ print(f"PCA Consistency score: {score:.4f}")
 # %% [markdown]
 # ## Understanding Consistency Scores
 #
-# The consistency score measures how well embeddings from different model instances align after accounting for the indeterminacy.
+# The consistency score measures how well embeddings from different model instances align after accounting for the indeterminacy. 
 #
 # - **Score = 1.0**: Perfect consistency - all models produce equivalent embeddings
 # - **Score close to 1.0**: High consistency - models are reliably converging to the same solution
@@ -187,7 +211,7 @@ symmetric_ensemble = ituna.ConsistencyEnsemble(
     estimator=FastICA(n_components=5, max_iter=1000),
     consistency_transform=ituna.metrics.PairwiseConsistency(
         indeterminacy=ituna.metrics.Permutation(),
-        symmetric=True,  # Include both i->j and j->i
+        symmetric=True,   # Include both i->j and j->i
         include_diagonal=False,  # Exclude self-alignments
     ),
     random_states=3,
