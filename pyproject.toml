@@ -54,7 +54,7 @@ dev = [
 docs = [
     "matplotlib",
     "cebra[datasets,demos]>=0.4.0",
-    "jupyter-book<2",
+    "jupyter-book<3",
     "ghp-import",
 ]
 dashboard = [
