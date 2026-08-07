@@ -116,14 +116,25 @@ def test_identity_sparse_dense_sparse(sparse_data):
 
 
 def test_assertions():
-    with pytest.raises(AssertionError):
+    """Boundary validation must raise ValueError, which `python -O` preserves and assert does not.
+
+    These are public functions, so a malformed argument is a caller error and belongs at the
+    boundary. Guarded by assert, every one of these checks vanished under `python -O` and the
+    malformed input travelled on to fail later as an opaque TypeError.
+    """
+    with pytest.raises(ValueError, match="2D array with shape"):
         sparse_to_dense(np.array([0, 1]), np.array([1]), (2, 2))
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="Length of indices and values"):
         sparse_to_dense(np.array([[0, 1]]), np.array([1, 2]), (2, 2))
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="at least 2D"):
         dense_to_sparse(np.array([1, 2, 3]))
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="must be symmetric"):
         dense_to_sparse(np.array([[1, 2], [3, 4]]), symmetric=True)
+
+    # Empty indices with non-empty values: reachable only with a genuinely zero-length index array,
+    # since a 1-D index array is caught by the shape check above before this branch is entered.
+    with pytest.raises(ValueError, match="Values must be empty"):
+        sparse_to_dense(np.empty((0, 2), dtype=int), np.array([1.0]), (2, 2))
 
     with pytest.raises(ValueError):
         indices = np.array([[0, 1], [1, 0]])

@@ -6,6 +6,7 @@ import numpy as np
 import scipy.optimize
 import sklearn.base
 import sklearn.linear_model
+import sklearn.metrics
 import typeguard
 
 from ituna.utils import sparse_to_dense
@@ -365,9 +366,8 @@ class PairwiseConsistency(ConsistencyTransform):
 
         reference_shape = X[self.reference_id_].shape
         X_shapes = [x.shape for x in X]
-        assert all(x_shape == reference_shape for x_shape in X_shapes), (
-            f"All embeddings must have the same shape, got {X_shapes} and match reference shape {reference_shape}"
-        )
+        if any(x_shape != reference_shape for x_shape in X_shapes):
+            raise ValueError(f"All embeddings must have the same shape, got {X_shapes} and match reference shape {reference_shape}")
 
         aligned_embeddings = self._align_embeddings(X)
         aligned_embeddings = (aligned_embeddings[0], np.array(aligned_embeddings[1]))
@@ -412,7 +412,10 @@ class PairwiseConsistency(ConsistencyTransform):
                 f"symmetric=True only pairs (i, j) with j >= i are fitted, and the models are not "
                 f"invertible in general, so the reverse direction is unavailable."
             )
-        assert len(matches) == 1, f"Multiple indeterminacy models found for source {source_id} and target {target_id}, this should not happen"
+        if len(matches) > 1:
+            # `_iter_pairs` yields each ordered pair exactly once, so this cannot occur. Raising
+            # rather than asserting keeps the guard alive under `python -O`, which strips assert.
+            raise RuntimeError(f"Multiple indeterminacy models found for source {source_id} and target {target_id}, this should not happen")
 
         return self.indeterminacies_[matches[0]]
 
@@ -516,7 +519,8 @@ class PairwiseConsistency(ConsistencyTransform):
         aligned_embeddings : Tuple[np.ndarray, List[np.ndarray]]
             A tuple containing the indices (n_pairs, 2) and values n_pairs x (n_samples, n_features) of the aligned embeddings.
         """
-        assert len(X) == self.n_spaces_, f"Number of embeddings must match number of indeterminacy models, got {len(X)} and {self.n_spaces_}"
+        if len(X) != self.n_spaces_:
+            raise ValueError(f"Number of embeddings must match number of indeterminacy models, got {len(X)} and {self.n_spaces_}")
 
         aligned_embeddings_values = []
         for (i, _), estimator in zip(self.indeterminacy_indices_, self.indeterminacies_):

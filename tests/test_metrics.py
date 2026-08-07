@@ -395,3 +395,38 @@ def test_score_is_nan_for_a_single_estimator(consistent_embeddings, include_diag
     transformer = metrics.PairwiseConsistency(indeterminacy=metrics.Permutation(), include_diagonal=include_diagonal)
     transformer.fit(X)
     assert np.isnan(transformer.score(X))
+
+
+def test_r2_score_mixin_does_not_depend_on_a_transitive_import():
+    """`sklearn.metrics` must be imported explicitly, not inherited from whatever else pulled it in.
+
+    `R2ScoreMixin.score` calls `sklearn.metrics.r2_score`. Before this was imported by name it
+    resolved only because `sklearn.linear_model` happens to import `sklearn.metrics` transitively --
+    an upstream refactor away from an AttributeError on the scoring path.
+    """
+    import subprocess
+    import sys
+
+    probe = "import numpy as np; import ituna.metrics as m; print(m.Identity().fit(np.eye(3), np.eye(3)).score(np.eye(3), np.eye(3)))"
+    completed = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
+    assert completed.stdout.strip() == "1.0"
+
+
+def test_mismatched_embedding_shapes_raise_value_error():
+    """Shape validation must survive `python -O`, which strips assert and would let this through."""
+    X = _partially_consistent_embeddings(n_estimators=3, n_features=6)
+    transformer = metrics.PairwiseConsistency(indeterminacy=metrics.Identity())
+    transformer.fit(X)
+
+    with pytest.raises(ValueError, match="same shape"):
+        transformer._transform_all([X[0], X[1], X[2][:, :3]])
+
+
+def test_align_embeddings_count_mismatch_raises_value_error():
+    """Same reasoning as above for the embedding count, which was also guarded only by assert."""
+    X = _partially_consistent_embeddings(n_estimators=3)
+    transformer = metrics.PairwiseConsistency(indeterminacy=metrics.Identity())
+    transformer.fit(X)
+
+    with pytest.raises(ValueError, match="must match number of indeterminacy models"):
+        transformer._align_embeddings(X[:2])

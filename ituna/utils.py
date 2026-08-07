@@ -29,11 +29,14 @@ def sparse_to_dense(indices: np.ndarray, values: np.ndarray, shape: Tuple[int, .
         The dense matrix.
     """
     if len(indices) == 0:
-        assert len(values) == 0, "Values must be empty if indices are empty"
+        if len(values) != 0:
+            raise ValueError(f"Values must be empty if indices are empty, got {len(values)} value(s)")
         return np.full(shape, fill_value, dtype=values.dtype)
 
-    assert indices.ndim == 2 and indices.shape[1] == 2, "Indices must be a 2D array with shape (n_pairs, 2)"
-    assert len(indices) == len(values), "Length of indices and values must be the same"
+    if indices.ndim != 2 or indices.shape[1] != 2:
+        raise ValueError(f"Indices must be a 2D array with shape (n_pairs, 2), got shape {indices.shape}")
+    if len(indices) != len(values):
+        raise ValueError(f"Length of indices and values must be the same, got {len(indices)} and {len(values)}")
 
     if symmetric:
         # Check for duplicate symmetric indices
@@ -70,9 +73,10 @@ def dense_to_sparse(dense_array: np.ndarray, symmetric: bool = False) -> Tuple[n
     Tuple[numpy.ndarray, numpy.ndarray]
         A tuple containing the indices and values of the non-nan elements.
     """
-    assert dense_array.ndim >= 2, "Dense array must be at least 2D"
-    if symmetric:
-        assert np.allclose(dense_array, dense_array.T, equal_nan=True), "Dense array must be symmetric"
+    if dense_array.ndim < 2:
+        raise ValueError(f"Dense array must be at least 2D, got {dense_array.ndim} dimension(s) with shape {dense_array.shape}")
+    if symmetric and not np.allclose(dense_array, dense_array.T, equal_nan=True):
+        raise ValueError("Dense array must be symmetric when symmetric=True")
 
     nan_mask = ~np.isnan(dense_array)
     if symmetric:
