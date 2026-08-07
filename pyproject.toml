@@ -47,6 +47,8 @@ dev = [
     "pre-commit>=3.0",
     "cebra>=0.4.0",
     "ruff",
+    # Used by tests/test_docs_notebook_pairing.py to read paired notebooks.
+    "jupytext",
      # Cebra requires pkg_resources, which is part of setuptools.
      # However, setuptools is not always installed by default anymore, so we need it here
     "setuptools",
