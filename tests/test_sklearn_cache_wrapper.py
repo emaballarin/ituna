@@ -1,6 +1,8 @@
+import gc
 from pathlib import Path
 import tempfile
 import warnings
+import weakref
 
 import numpy as np
 import pytest
@@ -244,3 +246,52 @@ def test_cached_consistency_ensemble_disk_cache_for_outer_and_inner_fit(ica_data
 
             transformed = cached_ensemble.transform(ica_data)
             assert isinstance(transformed, metrics.PairwiseConsistencyArray)
+
+
+def test_cached_does_not_retain_the_estimator():
+    """The instance patch must not outlive the estimator it was applied to."""
+    estimator = ituna.sklearn.cached(PCA(n_components=2, random_state=0), methods=["fit", "transform"])
+    ref = weakref.ref(estimator)
+    del estimator
+    gc.collect()
+    assert ref() is None
+
+
+def test_uncached_restores_the_original_instance_methods(ica_data):
+    estimator = PCA(n_components=2, random_state=0)
+    original_fit = estimator.fit
+    ituna.sklearn.cached(estimator, methods=["fit", "transform"])
+    assert "fit" in estimator.__dict__
+
+    ituna.sklearn.uncached(estimator)
+    assert "fit" not in estimator.__dict__
+    assert "transform" not in estimator.__dict__
+    assert estimator.fit.__func__ is original_fit.__func__
+
+
+def test_disable_global_cache_does_not_pin_an_inherited_method_onto_a_subclass():
+    """Unpatching an inherited method must restore MRO lookup, not copy the base implementation."""
+
+    class SubclassPCA(PCA):
+        pass
+
+    assert "fit" not in SubclassPCA.__dict__
+
+    ituna.sklearn.enable_global_cache([SubclassPCA], methods=["fit", "transform"])
+    try:
+        assert "fit" in SubclassPCA.__dict__
+    finally:
+        ituna.sklearn.disable_global_cache([SubclassPCA], methods=["fit", "transform"])
+
+    assert "fit" not in SubclassPCA.__dict__
+    assert "transform" not in SubclassPCA.__dict__
+    assert SubclassPCA.fit is PCA.fit
+
+
+def test_disable_global_cache_without_arguments_clears_every_patch():
+    ituna.sklearn.enable_global_cache([LinearRegression], methods=["fit", "predict", "score"])
+    try:
+        assert sorted(ituna.sklearn.get_global_cache_status()[f"{LinearRegression.__module__}.{LinearRegression.__qualname__}"]) == ["fit", "predict", "score"]
+    finally:
+        ituna.sklearn.disable_global_cache()
+    assert ituna.sklearn.get_global_cache_status() == {}

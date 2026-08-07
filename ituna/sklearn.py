@@ -1,6 +1,7 @@
+from collections.abc import Iterable
 import functools
 from types import MethodType
-from typing import Any, Dict, Iterable, Optional, Set, Tuple
+from typing import Any, Dict, Optional, Set, Tuple
 import warnings
 
 import sklearn.base
@@ -9,16 +10,27 @@ from ituna import _backends as backends
 from ituna._cache_guard import is_global_cache_patch_suspended
 from ituna._cache_guard import suspend_global_cache_patch
 
-_PATCHED_METHODS: Dict[Tuple[type, str], Any] = {}
-_PATCHED_INSTANCE_METHODS: Dict[Tuple[int, str], Any] = {}
+SUPPORTED_METHODS = ("fit", "transform", "predict", "score")
+
+# Maps (class, method) -> (original attribute, whether the class itself defined it).
+# Instance-level patches are not tracked here: they are marked on the patched
+# function and live in the instance __dict__, so they are freed with the estimator.
+_PATCHED_METHODS: Dict[Tuple[type, str], Tuple[Any, bool]] = {}
+
+_PATCH_MARKER = "_ituna_cache_patch"
 
 
 def _resolve_methods(methods: Optional[Iterable[str]]) -> Set[str]:
     resolved = set(methods or ["fit", "transform"])
-    unsupported = resolved.difference({"fit", "transform", "predict", "score"})
+    unsupported = resolved.difference(SUPPORTED_METHODS)
     if unsupported:
-        raise ValueError(f"Unsupported patch methods: {sorted(unsupported)}. Supported methods are: ['fit', 'transform', 'predict', 'score']")
+        raise ValueError(f"Unsupported patch methods: {sorted(unsupported)}. Supported methods are: {list(SUPPORTED_METHODS)}")
     return resolved
+
+
+def _is_instance_patched(estimator: sklearn.base.BaseEstimator, method_name: str) -> bool:
+    """Whether `method_name` is an iTuna patch sitting in the instance __dict__."""
+    return getattr(estimator.__dict__.get(method_name), _PATCH_MARKER, False) is True
 
 
 def _make_fit_instance_method(original_bound):
@@ -52,15 +64,14 @@ def _patch_estimator_instance(estimator: sklearn.base.BaseEstimator, methods: Se
     for method_name in methods:
         if not hasattr(estimator, method_name):
             raise ValueError(f"{estimator.__class__.__module__}.{estimator.__class__.__qualname__} does not implement {method_name}()")
-        key = (id(estimator), method_name)
-        if key in _PATCHED_INSTANCE_METHODS:
+        if _is_instance_patched(estimator, method_name):
             continue
         original_bound = getattr(estimator, method_name)
-        _PATCHED_INSTANCE_METHODS[key] = original_bound
         if method_name == "fit":
             patched = _make_fit_instance_method(original_bound)
         else:
             patched = _make_call_instance_method(method_name, original_bound)
+        setattr(patched, _PATCH_MARKER, True)
         setattr(estimator, method_name, MethodType(patched, estimator))
 
 
@@ -84,6 +95,22 @@ def cached(
     return estimator
 
 
+def uncached(
+    estimator: sklearn.base.BaseEstimator,
+    methods: Optional[Iterable[str]] = None,
+):
+    """Remove iTuna cache patches applied to an estimator instance by :func:`cached`.
+
+    Defaults to every supported method, so a bare ``uncached(estimator)`` undoes
+    any :func:`cached` call regardless of which methods it patched.
+    """
+    targets = _resolve_methods(methods) if methods is not None else set(SUPPORTED_METHODS)
+    for method_name in targets:
+        if _is_instance_patched(estimator, method_name):
+            delattr(estimator, method_name)
+    return estimator
+
+
 def _patch_fit_method(cls: type):
     key = (cls, "fit")
     if key in _PATCHED_METHODS:
@@ -92,7 +119,7 @@ def _patch_fit_method(cls: type):
         raise ValueError(f"{cls.__module__}.{cls.__qualname__} does not implement fit()")
 
     original = getattr(cls, "fit")
-    _PATCHED_METHODS[key] = original
+    _PATCHED_METHODS[key] = (original, "fit" in cls.__dict__)
 
     @functools.wraps(original)
     def patched_fit(self, *args, **kwargs):
@@ -117,7 +144,7 @@ def _patch_call_method(cls: type, method_name: str):
         raise ValueError(f"{cls.__module__}.{cls.__qualname__} does not implement {method_name}()")
 
     original = getattr(cls, method_name)
-    _PATCHED_METHODS[key] = original
+    _PATCHED_METHODS[key] = (original, method_name in cls.__dict__)
 
     @functools.wraps(original)
     def patched_call(self, *args, **kwargs):
@@ -149,16 +176,27 @@ def disable_global_cache(
     model_classes: Optional[Iterable[type]] = None,
     methods: Optional[Iterable[str]] = None,
 ):
-    """Restore original sklearn methods for previously patched classes."""
-    resolved_methods = _resolve_methods(methods)
+    """Restore original sklearn methods for previously patched classes.
+
+    Defaults to every supported method, so a bare ``disable_global_cache()``
+    fully undoes any :func:`enable_global_cache` call.
+    """
+    resolved_methods = _resolve_methods(methods) if methods is not None else set(SUPPORTED_METHODS)
     requested_classes = set(model_classes) if model_classes is not None else None
 
-    for (cls, method), original in list(_PATCHED_METHODS.items()):
+    for (cls, method), (original, defined_on_cls) in list(_PATCHED_METHODS.items()):
         if requested_classes is not None and cls not in requested_classes:
             continue
         if method not in resolved_methods:
             continue
-        setattr(cls, method, original)
+        if defined_on_cls:
+            setattr(cls, method, original)
+        else:
+            # The class inherited this method; deleting the patch restores lookup
+            # through the MRO. Assigning `original` back would instead pin a copy
+            # of the base implementation onto the subclass, freezing it against
+            # any later change to the base class.
+            delattr(cls, method)
         _PATCHED_METHODS.pop((cls, method), None)
 
 
