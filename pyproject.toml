@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
 
 [project]
 name = "ituna"
@@ -18,16 +18,10 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.14"
 dependencies = [
     "numpy",
     "scipy",
@@ -65,17 +59,20 @@ dashboard = [
 ]
 
 
-[tool.setuptools.dynamic]
-version = {attr = "ituna.__version__"}
+[tool.hatch.build.targets.wheel]
+packages = ["ituna"]
 
-[tool.setuptools.packages.find]
-exclude = ["third_party*", "tests*"]
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "ituna/_version.py"
 
 [project.urls]
 Homepage = "https://github.com/dynamical-inference/ituna"
 Documentation = "https://dynamical-inference.github.io/ituna/"
-Repository = "https://github.com/dynamical-inference/ituna.git"
-"Bug Tracker" = "https://github.com/dynamical-inference/ituna/issues"
+Repository = "https://github.com/emaballarin/ituna.git"
+"Bug Tracker" = "https://github.com/emaballarin/ituna/issues"
 
 [project.scripts]
 ituna-fit-distributed = "ituna._backends.scripts.cache_distributed:main"

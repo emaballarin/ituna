@@ -197,84 +197,52 @@ This creates/updates the `gh-pages` branch and pushes it to GitHub.
 
 ## Release Process
 
-We use a two-stage release pipeline: a release candidate (RC) branch for staging, followed by a tag push for production.
+The version is **derived from git tags** by `hatch-vcs`; there is no version literal anywhere in the
+tree. `ituna/_version.py` is written at build time and is not tracked.
 
-### Version Format
+- A commit on `main` builds as `X.Y.Z.devN+g<sha>`, where `X.Y.Z` is one patch above the last tag.
+- A commit that carries an annotated tag `vX.Y.Z` builds as exactly `X.Y.Z`.
 
-- Stable: `0.4.0`
-- Alpha: `0.4.0a1`
-- Beta: `0.4.0b1`
+Wheels are published to **GemFury**, not PyPI — the `ituna` name on PyPI belongs to upstream. Every
+push to `main` uploads a dev wheel; a tag additionally creates a GitHub release.
 
-Tags follow the same format prefixed with `v`: `v0.4.0`, `v0.4.0a1`, `v0.4.0b1`.
+### Version format
 
-The version is defined in [`ituna/__init__.py`](ituna/__init__.py) as `__version__`.
+Stable `0.4.0`, alpha `0.4.0a1`, beta `0.4.0b1`. Tags carry a `v` prefix: `v0.4.0`, `v0.4.0a1`.
 
-### Step-by-step
-
-#### 1. Prepare the release candidate
-
-```bash
-git checkout main && git pull
-git checkout -b rc/0.4.0
-```
-
-- Bump `__version__` in [`ituna/__init__.py`](ituna/__init__.py)
-- Make any last-minute fixes on this branch
-- Commit and push:
-
-  ```bash
-  git add .
-  git commit -m "Bump version to 0.4.0"
-  git push -u origin rc/0.4.0
-  ```
-
-#### 2. Open a release PR
-
-- [Create a PR](https://github.com/dynamical-inference/ituna/compare) from `rc/0.4.0` to `main`
-- Add the `release` label to the PR
-
-#### 3. Verify on TestPyPI
-
-The [`publish` workflow](https://github.com/dynamical-inference/ituna/actions/workflows/publish.yml) will automatically build and upload to [TestPyPI](https://test.pypi.org/project/ituna/). Verify the staging version:
-
-```bash
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ ituna==0.4.0
-python -c "import ituna; print(ituna.__version__)"
-```
-
-> **Note:** If you push more commits to the RC branch, the TestPyPI version will **not** be automatically updated. Remove and re-add the `release` label to trigger a new upload.
-
-#### 4. Merge
-
-Once tests pass, the staging version looks good, and the PR is reviewed:
-- Merge the PR **using rebase merging**
-- Delete the `rc/0.4.0` branch
-
-#### 5. Tag and publish
+### Cutting a release
 
 ```bash
 git checkout main && git pull
-git tag v0.4.0
-git push origin v0.4.0
+
+# Make sure the suite and the parity check pass first
+ruff format --check . && ruff check . && pytest tests/ -v
+python tools/upstream_parity/compare.py
+
+git tag -s v0.4.0 -m "Release 0.4.0"
+git push origin main v0.4.0
 ```
 
-Pushing the tag triggers the [`publish` workflow](https://github.com/dynamical-inference/ituna/actions/workflows/publish.yml), which builds and uploads the package to [PyPI](https://pypi.org/project/ituna/).
+Pushing the tag runs the [build workflow](https://github.com/emaballarin/ituna/actions/workflows/build.yml),
+which builds a clean wheel, uploads it to GemFury and opens a GitHub release.
 
-#### 6. Verify
+### Verifying
 
 ```bash
-pip install ituna==0.4.0
+pip install --index-url https://fury.ballarin.cc/pypi ituna==0.4.0
 python -c "import ituna; print(ituna.__version__)"
 ```
 
-### Quick Reference
+> **Dev wheels sort above the release they follow.** `0.4.1.devN` is a higher version than `0.4.0`
+> under PEP 440, so a resolver allowing pre-releases will prefer a dev wheel over the last tagged
+> one. Pin exactly when that matters.
+
+### Quick reference
 
 | Step | Action |
 |------|--------|
-| Branch | `git checkout -b rc/x.y.z` |
-| Bump version | Edit `ituna/__init__.py` |
-| PR | Open PR to `main`, add `release` label |
-| Staging | Verify on TestPyPI |
-| Merge | Rebase merge, delete branch |
-| Tag | `git tag vx.y.z && git push origin vx.y.z` |
-| Verify | `pip install ituna==x.y.z` |
+| Check | `ruff format --check . && ruff check . && pytest tests/ -v` |
+| Parity | `python tools/upstream_parity/compare.py` |
+| Tag | `git tag -s vx.y.z -m "Release x.y.z"` |
+| Publish | `git push origin main vx.y.z` |
+| Verify | `pip install --index-url https://fury.ballarin.cc/pypi ituna==x.y.z` |

@@ -5,9 +5,16 @@
 [![PyPI version](https://img.shields.io/pypi/v/ituna.svg?cacheSeconds=3600)](https://pypi.org/project/ituna/)
 [![Python versions](https://img.shields.io/pypi/pyversions/ituna.svg?cacheSeconds=3600)](https://pypi.org/project/ituna/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Build](https://github.com/dynamical-inference/ituna/actions/workflows/build.yml/badge.svg)](https://github.com/dynamical-inference/ituna/actions/workflows/build.yml)
+[![Build](https://github.com/emaballarin/ituna/actions/workflows/build.yml/badge.svg)](https://github.com/emaballarin/ituna/actions/workflows/build.yml)
 
 **Tune machine learning models for empirical identifiability and consistency**
+
+> **This is a fork** of [`dynamical-inference/ituna`](https://github.com/dynamical-inference/ituna),
+> carrying bug fixes together with upstream's own unmerged backend-routing and transform-caching
+> branch. It targets Python 3.14+, takes its version from git tags, and publishes wheels to GemFury
+> rather than PyPI. Fixes here are meant to change what runs, not what a correct run reports;
+> [`tools/upstream_parity/`](tools/upstream_parity/README.md) checks that against a clean upstream
+> tree and records the result. See [`PROJECT.md`](PROJECT.md) for the rest.
 
 ## Why 🐟i<span style="color: #4D94E8;">Tuna</span>?
 

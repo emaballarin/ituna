@@ -21,4 +21,8 @@ __all__ = [
 ]
 
 
-__version__ = "0.1.0"
+try:
+    # Written at build time by hatch-vcs from the git tag; generated, not tracked.
+    from ituna._version import __version__
+except ImportError:  # a source tree that has never been built
+    __version__ = "0.0.0.dev0"
