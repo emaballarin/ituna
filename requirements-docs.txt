@@ -2,5 +2,6 @@ numpy
 matplotlib
 umap-learn
 cebra[datasets,demos]
+jupytext
 ituna[datajoint]
 third_party/dj_ml_core-0.2.4-py3-none-any.whl

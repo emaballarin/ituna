@@ -7,8 +7,83 @@ import copy
 # The default backend to use. Can be 'in_memory', 'disk_cache', 'disk_cache_distributed', 'datajoint'.
 DEFAULT_BACKEND = "in_memory"
 BACKEND_KWARGS = dict()
+BACKEND_ROUTES = dict()
 CACHE_DIR = "backend_store"
 FILE_LOCK_TIMEOUT = 30  # in seconds
+
+
+def _class_to_path(model_class):
+    if model_class is None:
+        return None
+    if isinstance(model_class, str):
+        return model_class
+    return f"{model_class.__module__}.{model_class.__qualname__}"
+
+
+def _route_key(method=None, model_class=None):
+    return (method, _class_to_path(model_class))
+
+
+def _class_path_candidates(model_class):
+    """Return class path candidates from most specific to least specific."""
+    class_path = _class_to_path(model_class)
+    if class_path is None:
+        return [None]
+    if isinstance(model_class, str):
+        return [class_path]
+    candidates = []
+    for cls in model_class.__mro__:
+        if cls is object:
+            continue
+        candidates.append(_class_to_path(cls))
+    return candidates
+
+
+def register_backend_route(method=None, model_class=None, backend=None, backend_kwargs=None):
+    """Register a backend route override.
+
+    Routes are resolved by specificity in this order:
+    1. (method, model_class)
+    2. (method, None)
+    3. (None, model_class)
+    4. DEFAULT_BACKEND + BACKEND_KWARGS
+    """
+    key = _route_key(method=method, model_class=model_class)
+    route = {"backend": backend or DEFAULT_BACKEND}
+    if backend_kwargs is not None:
+        route["backend_kwargs"] = copy.deepcopy(backend_kwargs)
+    BACKEND_ROUTES[key] = route
+
+
+def remove_backend_route(method=None, model_class=None):
+    """Remove a backend route override if it exists."""
+    key = _route_key(method=method, model_class=model_class)
+    BACKEND_ROUTES.pop(key, None)
+
+
+def clear_backend_routes():
+    """Remove all backend route overrides."""
+    BACKEND_ROUTES.clear()
+
+
+def resolve_backend_route(method=None, model_class=None):
+    """Resolve backend name and kwargs for a method/class operation."""
+    class_candidates = _class_path_candidates(model_class)
+    route_candidates = []
+    for class_path in class_candidates:
+        route_candidates.append((method, class_path))
+    route_candidates.append((method, None))
+    for class_path in class_candidates:
+        route_candidates.append((None, class_path))
+    for key in route_candidates:
+        if key in BACKEND_ROUTES:
+            route = BACKEND_ROUTES[key]
+            backend_name = route.get("backend", DEFAULT_BACKEND)
+            route_kwargs = route.get("backend_kwargs", {})
+            resolved_kwargs = copy.deepcopy(BACKEND_KWARGS)
+            _deep_update(resolved_kwargs, route_kwargs)
+            return backend_name, resolved_kwargs
+    return DEFAULT_BACKEND, copy.deepcopy(BACKEND_KWARGS)
 
 
 def _deep_update(target_dict, update_dict):

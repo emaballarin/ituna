@@ -119,8 +119,8 @@ The documentation is built using [Jupyter Book](https://jupyterbook.org/) versio
 ### Local Build
 
 ```bash
-# Install jupyter-book (must be version <2)
-pip install "jupyter-book<2"
+# Install documentation dependencies (includes jupyter-book and jupytext)
+pip install -e ".[docs]"
 
 # Build the docs from the project root
 jupyter-book build .
@@ -129,6 +129,29 @@ jupyter-book build .
 # Open in browser:
 open _build/html/index.html   # macOS
 xdg-open _build/html/index.html  # Linux
+```
+
+### Editing Notebooks (Jupytext, Recommended)
+
+We keep tutorial/demo notebooks paired as:
+
+- `*.ipynb` (rendered by Jupyter Book)
+- `*.py` in **percent** format (easy to diff/review)
+
+To edit a notebook:
+
+1. Edit the corresponding `*.py` percent file.
+2. Sync back to the `*.ipynb`:
+
+```bash
+jupytext --sync docs/tutorials/<notebook>.ipynb
+```
+
+To pair a new notebook (creates/updates the `*.py` alongside the `*.ipynb`):
+
+```bash
+jupytext --set-formats ipynb,py:percent docs/tutorials/new_notebook.ipynb
+jupytext --sync docs/tutorials/new_notebook.ipynb
 ```
 
 ### Local Server
@@ -161,7 +184,7 @@ Press Ctrl+C to stop.
 
 ```bash
 # Install required tools
-pip install "jupyter-book<2" ghp-import
+pip install -e ".[docs]"
 
 # Build and publish
 jupyter-book build .

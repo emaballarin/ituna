@@ -11,6 +11,7 @@ repository:
 
 exclude_patterns:
   - .github/*
+  - .cursor/**
   - slurm/*
   - third_party/*
   - _build/*

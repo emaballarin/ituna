@@ -46,6 +46,20 @@ class Backend(ABC):
         """
         pass
 
+    def call_models(
+        self,
+        models: List[sklearn.base.BaseEstimator],
+        method_name: str,
+        *args,
+        **kwargs,
+    ) -> List:
+        """Call a method on each model and return outputs."""
+        outputs = []
+        for model in models:
+            method = getattr(model, method_name)
+            outputs.append(method(*args, **kwargs))
+        return outputs
+
 
 @typeguard.typechecked
 class DistributedComputationMixin(ABC):

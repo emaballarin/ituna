@@ -7,6 +7,7 @@ line-length = 160
 # Exclude a variety of commonly ignored directories.
 exclude = [
     "**/*.ipynb",
+    "docs/**",
     ".bzr",
     ".direnv",
     ".eggs",

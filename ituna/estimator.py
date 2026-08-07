@@ -111,8 +111,6 @@ class ConsistencyEnsemble(
         self.consistency_transform: metrics.ConsistencyTransform = consistency_transform
         self.random_states = random_states
 
-        self._backend: backends.Backend = backends.get_backend()
-
         base_params = estimator.get_params()
         non_deterministic = check_non_deterministic(estimator)
 
@@ -139,6 +137,14 @@ class ConsistencyEnsemble(
         for random_state in self._random_states:
             estimators.append(clone_with_seed(self.estimator, random_state))
         return estimators
+
+    @property
+    def _backend(self):
+        """Backward-compatible backend accessor.
+
+        Kept for private/test compatibility while backend selection is now resolved lazily.
+        """
+        return backends.get_backend()
 
     def __sklearn_tags__(self):
         # NOTE(ppommer): new way to specify tags (sklearn >= 1.6.dev)
@@ -193,14 +199,22 @@ class ConsistencyEnsemble(
             Returns the instance itself.
         """
 
-        self.estimators_: sklearn.base.TransformerMixin = self._backend.fit_models(
+        estimator_backend = backends.get_backend(
+            method="fit",
+            model_class=self.estimator.__class__,
+        )
+        self.estimators_: sklearn.base.TransformerMixin = estimator_backend.fit_models(
             self._init_estimators(),
             *args,
             **kwargs,
         )
 
         embeddings = self._transforms(*args[:1])
-        self.consistency_transform_ = self._backend.fit_models(
+        consistency_transform_backend = backends.get_backend(
+            method="fit",
+            model_class=self.consistency_transform.__class__,
+        )
+        self.consistency_transform_ = consistency_transform_backend.fit_models(
             [sklearn.base.clone(self.consistency_transform)],
             embeddings,
         )[0]
@@ -220,10 +234,11 @@ class ConsistencyEnsemble(
         X_transformed : List[np.ndarray]
              List of n_estimators transformed data shaped (n_samples, n_features_out)
         """
-        results = []
-        for model in self.estimators_:
-            results.append(model.transform(X))
-        return results
+        transform_backend = backends.get_backend(
+            method="transform",
+            model_class=self.estimator.__class__,
+        )
+        return transform_backend.call_models(self.estimators_, "transform", X)
 
     def transform(self, X):
         """

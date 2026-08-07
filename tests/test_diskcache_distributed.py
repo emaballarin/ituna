@@ -14,6 +14,8 @@ from sklearn.decomposition import PCA
 import ituna
 from ituna import config
 from ituna import metrics
+from ituna._backends.disk_cache import DiskCacheBackend
+from ituna._backends.disk_cache import DiskCacheDistributedBackend
 
 
 def get_estimator(estimator_cls):
@@ -95,7 +97,8 @@ def test_multi_process(ica_data, estimator_cls):
             model_cache_dir = cache_dir / "trained_models"
             assert model_cache_dir.exists()
             cached_files = list(model_cache_dir.glob("*.pkl"))
-            assert len(cached_files) == ensemble.random_states
+            # +1 for cached consistency transform
+            assert len(cached_files) == ensemble.random_states + 1
 
             estimator2 = get_estimator(estimator_cls)
 
@@ -223,7 +226,8 @@ def test_manual_trigger(ica_data, estimator_cls):
             model_cache_dir = cache_dir / "trained_models"
             assert model_cache_dir.exists()
             cached_files = list(model_cache_dir.glob("*.pkl"))
-            assert len(cached_files) == ensemble.random_states
+            # +1 for cached consistency transform
+            assert len(cached_files) == ensemble.random_states + 1
 
             estimator2 = get_estimator(estimator_cls)
 
@@ -251,3 +255,37 @@ def test_manual_trigger(ica_data, estimator_cls):
             np.testing.assert_allclose(score1, score2)
             np.testing.assert_allclose(transform1, transform2)
             assert isinstance(score1, (int, float, np.number))
+
+
+def test_distributed_fast_path_skips_sweep_when_all_models_already_cached(ica_data, monkeypatch):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache_dir = Path(tmpdir)
+
+        def make_models():
+            return [
+                PCA(n_components=3, random_state=0),
+                PCA(n_components=3, random_state=1),
+            ]
+
+        local_backend = DiskCacheBackend(cache_dir=cache_dir)
+        local_backend.fit_models(make_models(), ica_data)
+
+        distributed_backend = DiskCacheDistributedBackend(
+            cache_dir=cache_dir,
+            trigger_type="manual",
+            sweep_type="constant",
+            sweep_name="fast_path_test",
+            fit_time_out=1,
+        )
+
+        def should_not_run(*args, **kwargs):
+            raise AssertionError("distributed sweep registration should be skipped on full cache hit")
+
+        monkeypatch.setattr(distributed_backend, "_store_model", should_not_run)
+        monkeypatch.setattr(distributed_backend, "_add_to_sweep", should_not_run)
+        monkeypatch.setattr(distributed_backend, "_trigger_sweep", should_not_run)
+
+        trained_models = distributed_backend.fit_models(make_models(), ica_data)
+        assert len(trained_models) == 2
+        assert all(model is not None for model in trained_models)
+        assert not (cache_dir / "sweep_data" / "fast_path_test.csv").exists()

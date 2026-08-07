@@ -56,7 +56,8 @@ def test_disk_cache_backend(ica_data, estimator_cls):
             model_cache_dir = cache_dir / "trained_models"
             assert model_cache_dir.exists()
             cached_files = list(model_cache_dir.glob("*.pkl"))
-            assert len(cached_files) == len(ensemble.random_states)
+            # +1 for cached consistency transform
+            assert len(cached_files) == len(ensemble.random_states) + 1
 
             # Second fit, should load from cache
             if estimator_cls == FastICA:

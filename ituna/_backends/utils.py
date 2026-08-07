@@ -415,11 +415,16 @@ def load_model_pickle(
 
 
 @typeguard.typechecked
-def store_model(model_path: Union[str, Path], model: sklearn.base.BaseEstimator):
+def store_model(model_path: Union[str, Path], model: sklearn.base.BaseEstimator, overwrite: bool = False):
+    model_path = Path(model_path)
+    pkl_path = model_path.with_suffix(".pkl")
+    if pkl_path.exists() and not overwrite:
+        return
+
     if hasattr(model, "_estimator_factory"):
         model._estimator_factory.save(model_path, model)
         # store factory
-        store_model_pickle(model_path, model._estimator_factory)
+        store_model_pickle(model_path, model._estimator_factory, overwrite=overwrite)
         return
 
     # try default estimator factory
@@ -427,28 +432,31 @@ def store_model(model_path: Union[str, Path], model: sklearn.base.BaseEstimator)
         try:
             model_factory.save(model_path, model)
             # store factory
-            store_model_pickle(model_path, model_factory)
+            store_model_pickle(model_path, model_factory, overwrite=overwrite)
             return
         except UnsupportedEstimator:
             continue
         except Exception as factory_exception:
             # Try default pickle before re-raising the error
             try:
-                store_model_pickle(model_path, model)
+                store_model_pickle(model_path, model, overwrite=overwrite)
                 return
             except Exception as pickle_exception:
                 # Re-raise the original exception from the factory
                 raise pickle_exception from factory_exception
     # finally default to pickle
-    store_model_pickle(model_path, model)
+    store_model_pickle(model_path, model, overwrite=overwrite)
 
 
 @typeguard.typechecked
 def store_model_pickle(
     model_path: Union[str, Path],
     model: Union[sklearn.base.BaseEstimator, EstimatorFactory],
+    overwrite: bool = False,
 ):
     model_path = model_path.with_suffix(".pkl")
+    if model_path.exists() and not overwrite:
+        return
 
     with file_lock_context(model_path):
         joblib.dump(model, model_path)

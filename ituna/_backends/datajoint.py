@@ -10,6 +10,7 @@ import typeguard
 from ituna import estimator
 from ituna._backends import base
 from ituna._backends import utils
+from ituna._cache_guard import suspend_global_cache_patch
 
 _DATAJOINT_IMPORTS_MISSING = []
 try:
@@ -644,7 +645,8 @@ else:
                     # get model training entry
                     model, data_args, _ = ModelTrainingTable().get_model_training(key)
 
-                    trained_model = model.fit(*data_args.args, **data_args.kwargs)
+                    with suspend_global_cache_patch():
+                        trained_model = model.fit(*data_args.args, **data_args.kwargs)
 
                     trained_model_logs_abs = backend_self._trained_models_dir / f"{key['arg_hash']}"
                     print(
@@ -745,7 +747,8 @@ else:
                 def make(self, key, **kwargs):
                     """Compute the encoder transform results."""
                     trained_model, data = EncoderTransformsTable().get_encoder_transform(key)
-                    result = trained_model.transform(data)
+                    with suspend_global_cache_patch():
+                        result = trained_model.transform(data)
                     result_data_hash = DatasetTable().insert_data(result, skip_duplicates=True)
                     self.insert1(
                         dict(

@@ -6,6 +6,7 @@ from ituna import _backends
 from ituna import config
 from ituna import estimator
 from ituna import metrics
+from ituna import sklearn
 from ituna import utils
 from ituna.estimator import ConsistencyEnsemble
 
@@ -14,6 +15,7 @@ __all__ = [
     "config",
     "estimator",
     "metrics",
+    "sklearn",
     "utils",
     "_backends",
 ]

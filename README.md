@@ -91,6 +91,7 @@ Full documentation is available at **[dynamical-inference.github.io/ituna](https
 - **Quickstart notebook**: [`docs/tutorials/quickstart.ipynb`](docs/tutorials/quickstart.ipynb) - minimal working example
 - **Core concepts**: [`docs/tutorials/core.ipynb`](docs/tutorials/core.ipynb) - in-depth walkthrough
 - **Backends**: [`docs/tutorials/backends.ipynb`](docs/tutorials/backends.ipynb) - caching and distributed execution
+- **sklearn caching**: [`docs/guides/sklearn_caching.ipynb`](docs/guides/sklearn_caching.ipynb) - cache standalone sklearn estimators (`fit`/`transform`/`predict`/`score`)
 
 ## Backends
 
@@ -118,6 +119,10 @@ with config.config_context(
     BACKEND_KWARGS={"trigger_type": "auto", "num_workers": 4},
 ):
     ensemble.fit(X)
+
+# Advanced: route different operations to different backends
+# (e.g. distributed estimator fit + locally cached consistency transforms)
+# config.register_backend_route(method="fit", model_class=metrics.ConsistencyTransform, backend="disk_cache")
 ```
 
 ### CLI Commands
