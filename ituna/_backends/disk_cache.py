@@ -2,6 +2,7 @@ import csv
 import pathlib
 import traceback
 from typing import Any, List, Literal, Optional, Tuple, Union
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -117,11 +118,19 @@ class DiskCacheBackend(base.Backend):
         model: sklearn.base.BaseEstimator,
         method_name: str,
         data: utils.DataArguments,
-        model_id: Optional[int] = None,
-    ) -> str:
+    ) -> Optional[str]:
+        """Cache key for a method call, or None if the model's training identity is unknown.
+
+        ``_ituna_model_data_hash`` is stamped by :meth:`fit_models` and identifies the
+        (model, fit data) pair the estimator was trained on. It is the only available
+        handle on fitted state: ``utils.hash_sklearn`` covers the class and
+        ``get_params()`` -- constructor arguments -- and never the learned attributes.
+        Falling back to it would give two estimators with equal hyperparameters but
+        different fit data the same key, so each would read the other's cached output.
+        """
         model_data_hash = getattr(model, "_ituna_model_data_hash", None)
         if model_data_hash is None:
-            model_data_hash = self._hash_model_data(model=model, data=data, model_id=model_id)
+            return None
         return utils.hash_str(f"{method_name}:{model_data_hash}:{data.hash}")
 
     def _to_cache_payload(self, output: Any) -> Any:
@@ -147,13 +156,26 @@ class DiskCacheBackend(base.Backend):
     ) -> List[Any]:
         data = utils.DataArguments(*args, **kwargs)
         outputs = []
-        for i, model in enumerate(models):
+        for model in models:
             method_hash = self._hash_method_call(
                 model=model,
                 method_name=method_name,
                 data=data,
-                model_id=i,
             )
+            if method_hash is None:
+                model_path = f"{model.__class__.__module__}.{model.__class__.__qualname__}"
+                warnings.warn(
+                    f"{method_name}() on {model_path} was not cached: the estimator was not fitted through a "
+                    f"caching backend, so the data it was trained on is unknown and any cache key would collide "
+                    f"with other instances sharing its hyperparameters. Route 'fit' for {model_path} to a caching "
+                    f"backend to enable {method_name}() caching.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                with suspend_global_cache_patch():
+                    outputs.append(getattr(model, method_name)(*data.args, **data.kwargs))
+                continue
+
             method_path = self.transform_cache / method_hash
             try:
                 payload = utils.load_data(method_path)

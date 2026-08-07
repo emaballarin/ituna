@@ -15,6 +15,72 @@ from ituna import config
 from ituna import metrics
 
 
+def test_transform_route_never_shares_cache_across_differently_fitted_models(ica_data):
+    """Models fit outside a caching backend must not share a transform cache entry.
+
+    Their only available identity is ``hash_sklearn``, which covers constructor
+    parameters and not learned attributes, so two ensembles with equal
+    hyperparameters trained on different data would otherwise collide.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache_dir = Path(tmpdir)
+        with config.config_context(
+            DEFAULT_BACKEND="in_memory",
+            CACHE_DIR=cache_dir,
+            BACKEND_KWARGS={},
+            BACKEND_ROUTES={},
+        ):
+            config.register_backend_route(method="transform", model_class=PCA, backend="disk_cache")
+
+            def build_ensemble():
+                return ituna.ConsistencyEnsemble(
+                    estimator=PCA(n_components=3, random_state=42),
+                    consistency_transform=metrics.PairwiseConsistency(
+                        indeterminacy=metrics.Linear(),
+                        symmetric=False,
+                        include_diagonal=True,
+                    ),
+                    random_states=[0, 1],
+                )
+
+            other_data = ica_data * 3.0 + 10.0
+
+            first = build_ensemble()
+            first.fit(ica_data)
+            first_embeddings = first._transforms(ica_data)
+
+            second = build_ensemble()
+            second.fit(other_data)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", UserWarning)
+                second_embeddings = second._transforms(ica_data)
+
+            expected = [model.transform(ica_data) for model in second.estimators_]
+            for actual, reference in zip(second_embeddings, expected):
+                np.testing.assert_allclose(actual, reference)
+            assert not np.allclose(first_embeddings[0], second_embeddings[0])
+
+
+def test_uncacheable_method_call_warns_instead_of_returning_a_colliding_entry(ica_data):
+    """Uncacheable calls run through and say why, rather than guessing a key."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache_dir = Path(tmpdir)
+        with config.config_context(
+            DEFAULT_BACKEND="disk_cache",
+            CACHE_DIR=cache_dir,
+            BACKEND_KWARGS={},
+            BACKEND_ROUTES={},
+        ):
+            backend = ituna._backends.get_backend("disk_cache")
+            model = PCA(n_components=3, random_state=0).fit(ica_data)
+
+            with pytest.warns(UserWarning, match="was not cached"):
+                outputs = backend.call_models([model], "transform", ica_data)
+
+            np.testing.assert_allclose(outputs[0], model.transform(ica_data))
+            assert list((cache_dir / "transforms").glob("*")) == []
+
+
 def test_backend_route_specificity_resolution():
     with tempfile.TemporaryDirectory() as tmpdir:
         cache_dir = Path(tmpdir)
