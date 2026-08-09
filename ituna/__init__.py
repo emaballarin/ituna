@@ -5,6 +5,7 @@ ituna - Tune machine learning models for empirical identifiability and consisten
 from ituna import _backends
 from ituna import config
 from ituna import estimator
+from ituna import gauge
 from ituna import metrics
 from ituna import sklearn
 from ituna import spectral
@@ -15,6 +16,7 @@ __all__ = [
     "ConsistencyEnsemble",
     "config",
     "estimator",
+    "gauge",
     "metrics",
     "sklearn",
     "spectral",

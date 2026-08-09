@@ -280,3 +280,161 @@ def test_distance_matrix_is_symmetric_with_a_zero_diagonal():
     np.testing.assert_allclose(result.max_distance_matrix, result.max_distance_matrix.T, atol=0.0)
     np.testing.assert_array_equal(np.diag(result.distance_matrix), np.zeros(4))
     assert np.all(result.max_distance_matrix >= result.distance_matrix)
+
+
+# --- consensus -----------------------------------------------------------------------------------
+
+_NON_NORMAL = np.array([[0.9, 0.7, 0.1], [0.0, 0.4, 0.6], [0.0, 0.0, -0.5]])
+"""Upper triangular with well-separated eigenvalues: the spectrum is readable off the diagonal, and
+it is emphatically not normal, so the orthogonal-only invariants are non-trivial."""
+
+
+def _consensus(operators, **kwargs):
+    """Run both stages, which is the only supported way to reach a consensus."""
+    return spectral.spectral_consensus(spectral.spectral_consistency(operators), **kwargs)
+
+
+def test_consensus_recovers_a_known_gauge_orbit_exactly():
+    """Runs differing only by the gauge carry one spectrum, so the consensus is that spectrum and the scatter is zero."""
+    rng = _rng()
+    operators = [_NON_NORMAL] + [(basis := _orthogonal(3, rng)).T @ _NON_NORMAL @ basis for _ in range(4)]
+    consensus = _consensus(operators)
+
+    np.testing.assert_allclose(np.sort_complex(consensus.eigenvalues_mean), np.sort_complex(np.linalg.eigvals(_NON_NORMAL)), atol=1e-10)
+    assert consensus.eigenvalues_scatter.max() < 1e-10
+    assert consensus.conjugate_closure_residual < 1e-12
+    assert consensus.singular_values_mean is not None, "the default gauge is orthogonal, so these are owned"
+    np.testing.assert_allclose(consensus.singular_values_mean, np.linalg.svd(_NON_NORMAL, compute_uv=False), atol=1e-10)
+    assert consensus.n_runs == 5
+
+
+def test_consensus_statistics_are_the_plain_ones_on_a_controlled_ensemble():
+    """The mean, the scatter and the standard error must be exactly what a hand computation gives."""
+    offsets = [-0.02, 0.0, 0.02]
+    operators = [np.diag([1.0 + offset, 0.5, -0.3]) for offset in offsets]
+    consensus = _consensus(operators)
+
+    slot = int(np.argmin(np.abs(consensus.eigenvalues_mean - 1.0)))
+    np.testing.assert_allclose(consensus.eigenvalues_mean[slot], 1.0, atol=1e-12)
+    np.testing.assert_allclose(consensus.eigenvalues_scatter[slot], np.std(offsets, ddof=1), atol=1e-12)
+    np.testing.assert_allclose(consensus.eigenvalues_sem, consensus.eigenvalues_scatter / np.sqrt(3), atol=0.0)
+    # The two unperturbed slots carry no scatter at all, so the statistic is not smearing across slots.
+    assert np.sort(consensus.eigenvalues_scatter)[:2].max() < 1e-12
+
+
+def test_consensus_labelling_is_the_medoid_star():
+    """The global labelling is inherited rather than recomputed, and it must really permute each run's spectrum."""
+    rng = _rng()
+    operators = [_well_separated(4, rng) + 0.05 * rng.normal(size=(4, 4)) for _ in range(4)]
+    result = spectral.spectral_consistency(operators)
+    consensus = spectral.spectral_consensus(result)
+
+    np.testing.assert_array_equal(consensus.assignment, result.assignments[result.reference_id])
+    assert consensus.reference_id == result.reference_id
+    for run in range(4):
+        np.testing.assert_allclose(np.sort_complex(consensus.matched_eigenvalues[run]), np.sort_complex(result.eigenvalues[run]), atol=0.0)
+
+
+def test_conjugate_closure_residual_fires_on_a_structural_disagreement():
+    """A complex pair in one run against two reals in another cannot be averaged, and must say so rather than return a plausible number."""
+    oscillating = 0.7 * _rotation(0.6)
+    decaying = np.diag([0.9, 0.1])
+    consensus_result = spectral.spectral_consistency([oscillating, oscillating.copy(), decaying])
+
+    with pytest.warns(RuntimeWarning, match="not closed under conjugation"):
+        consensus = spectral.spectral_consensus(consensus_result)
+
+    assert consensus.conjugate_closure_residual > 0.1
+    # The raw distance is recoverable, as with the source result's own `scale`.
+    assert consensus.conjugate_closure_residual * consensus.conjugate_closure_scale > 0.0
+
+
+def test_conjugate_closure_is_clean_when_runs_agree_structurally():
+    """Spectra that are each conjugate-closed and matched consistently average to a conjugate-closed spectrum."""
+    operators = [radius * _rotation(theta) for radius, theta in ((0.70, 0.60), (0.72, 0.63), (0.68, 0.58))]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        consensus = _consensus(operators)
+
+    assert consensus.conjugate_closure_residual < 1e-12
+    np.testing.assert_allclose(consensus.eigenvalues_mean[0], np.conjugate(consensus.eigenvalues_mean[1]), atol=1e-12)
+
+
+def test_general_linear_gauge_withholds_what_it_does_not_own():
+    """Under GL(L) the singular values genuinely move, so returning None is a correctness fix and not a formality."""
+    rng = _rng()
+    gauges = [_orthogonal(3, rng) @ np.diag([1.0, 2.0, 0.5]) for _ in range(4)]
+    operators = [_NON_NORMAL] + [np.linalg.solve(gauge, _NON_NORMAL @ gauge) for gauge in gauges]
+    result = spectral.spectral_consistency(operators)
+
+    orthogonal_claim = spectral.spectral_consensus(result)
+    general = spectral.spectral_consensus(result, gauge="general_linear")
+
+    # The spectrum is untouched by the change of basis; the norm-derived quantities are not.
+    assert general.eigenvalues_scatter.max() < 1e-9
+    assert result.singular_values.std(axis=0).max() > 0.1
+    assert general.singular_values_mean is None and general.singular_values_sem is None
+    assert general.departure_mean is None and general.departure_sem is None
+    # And the default gauge would have reported exactly the number that is not invariant here.
+    assert orthogonal_claim.singular_values_mean is not None
+    np.testing.assert_allclose(general.eigenvalues_mean, orthogonal_claim.eigenvalues_mean, atol=0.0)
+
+
+def test_a_bias_shared_by_every_run_is_invisible_to_the_scatter():
+    """Averaging removes what differs between runs and nothing else. This documents the blindness; it does not fix it."""
+    rng = _rng()
+    bias = 0.15 * np.triu(np.ones((3, 3)))
+    operators = [_NON_NORMAL + bias + 1e-4 * rng.normal(size=(3, 3)) for _ in range(6)]
+    consensus = _consensus(operators)
+
+    truth = np.sort_complex(np.linalg.eigvals(_NON_NORMAL))
+    error = np.abs(np.sort_complex(consensus.eigenvalues_mean) - truth).max()
+
+    assert consensus.eigenvalues_scatter.max() < 1e-3, "the runs agree, as constructed"
+    assert error > 0.1, "and they agree on something wrong, which no amount of averaging can reveal"
+
+
+def test_continuous_consensus_averages_logarithms_not_eigenvalues():
+    """log(mean) and mean(log) are different numbers, and the docstring commits to the second."""
+    operators = [np.diag([0.9, 0.5]), np.diag([0.7, 0.3])]
+    result = spectral.spectral_consistency(operators, dt=1.0)
+    consensus = spectral.spectral_consensus(result)
+
+    assert result.continuous_eigenvalues is not None and consensus.continuous_eigenvalues_mean is not None
+    matched_logs = np.take_along_axis(result.continuous_eigenvalues, consensus.assignment, axis=1)
+    np.testing.assert_allclose(consensus.continuous_eigenvalues_mean, matched_logs.mean(axis=0), atol=1e-12)
+    assert not np.allclose(consensus.continuous_eigenvalues_mean, np.log(consensus.eigenvalues_mean))
+
+
+def test_continuous_consensus_is_absent_when_the_source_had_no_dt():
+    """The field is optional in exactly the way the source result's is."""
+    assert _consensus([np.diag([0.9, 0.5]), np.diag([0.7, 0.3])]).continuous_eigenvalues_mean is None
+
+
+@pytest.mark.parametrize("gauge", ["signed_permutation", "scaled_signed_permutation"])
+def test_recognised_but_unimplemented_gauges_are_distinguishable_from_a_typo(gauge):
+    """A caller whose objective really produces one of these must not read `unknown gauge` and shrug."""
+    result = spectral.spectral_consistency([np.diag([0.9, 0.5]), np.diag([0.7, 0.3])])
+    with pytest.raises(NotImplementedError, match="recognised but not implemented"):
+        spectral.spectral_consensus(result, gauge=gauge)
+
+
+def test_unknown_gauge_raises_value_error_and_names_the_alternatives():
+    """Boundary validation, and the message has to be actionable."""
+    result = spectral.spectral_consistency([np.diag([0.9, 0.5]), np.diag([0.7, 0.3])])
+    with pytest.raises(ValueError, match="unknown gauge"):
+        spectral.spectral_consensus(result, gauge="unitary")
+
+
+def test_consensus_arrays_are_read_only():
+    """Same contract as the source result: frozen all the way down, so it is safe to cache and share."""
+    consensus = _consensus([np.diag([0.9, 0.5, 0.2]), np.diag([0.7, 0.3, 0.1])])
+    for field in (
+        "eigenvalues_mean",
+        "eigenvalues_scatter",
+        "matched_eigenvalues",
+        "assignment",
+        "singular_values_mean",
+    ):
+        with pytest.raises(ValueError):
+            getattr(consensus, field)[0] = 0.0

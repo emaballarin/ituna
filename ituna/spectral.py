@@ -2,11 +2,46 @@
 
 An encoder trained with an isotropy-enforcing objective is identifiable only up to an orthogonal
 change of latent basis. That gauge acts on a learned transfer operator by similarity,
-``K -> Q K Q^T``, so every quantity computed here is a similarity invariant and is therefore
+``K -> Q K Q^T``, and every quantity computed here is invariant under it, so operators are
 comparable across independently trained runs *without* any alignment step. This answers a question
 embedding alignment cannot: two runs that settled on different approximately-invariant subspaces can
 still align well, because least squares happily fits a good linear map between overlapping but
 distinct subspaces.
+
+Which gauge, and therefore which quantities
+-------------------------------------------
+
+The gauge is not a property of this module -- it is whatever the *anticollapse* half of the training
+objective leaves standing, and it decides which of the numbers below mean anything across runs.
+
+- **A decoder or autoencoder reconstruction, or a JEPA with a stop-gradient or EMA target.** Nothing
+  constrains the latent metric, so the gauge is the whole of ``GL(L)`` and the spectrum is the only
+  thing that survives it. Pass ``gauge="general_linear"`` to :func:`spectral_consensus`.
+- **VICReg, or SIGReg against an isotropic Gaussian.** Both drive ``Cov(z) -> I``, and a Gaussian
+  target has zero excess kurtosis, so it cannot pin a rotation: the gauge is ``O(L)`` and everything
+  computed here survives it. This is the case the module is written for and its default.
+- **SIGReg against a *product* non-Gaussian target.** The coordinate axes themselves are pinned and
+  the gauge drops to the signed permutations, a finite subgroup of ``O(L)``. Everything here
+  survives, and so do invariants no function of the spectrum can see. Not computed here.
+- **The same without whitening: the classical ICA class.** The gauge is the scaled signed
+  permutations. Not computed here, and ⚠️ **not a case where a smaller gauge means more
+  invariants** -- a per-coordinate scaling is not orthogonal, so this group is *not* inside ``O(L)``
+  and the norm-derived quantities below stop being invariant exactly as they do under ``GL(L)``.
+
+Per quantity, since the split is what matters whenever the objective is not the second bullet:
+
+- Invariant under **any** similarity, hence under every bullet above: :attr:`eigenvalues`,
+  :attr:`spectral_radius`, :attr:`continuous_eigenvalues`, and therefore :attr:`distance_matrix`,
+  :attr:`max_distance_matrix`, :attr:`assignments`, :attr:`scale`, :attr:`reference_id` and
+  :attr:`consistency`, all of which are computed from eigenvalues alone. 🔑 **The comparison this
+  module exists to make is therefore valid under ``GL(L)`` too** -- that is why
+  :func:`spectral_consistency` takes no gauge argument.
+- Invariant under **orthogonal** similarity only: :attr:`singular_values`, :attr:`departure` and
+  :attr:`eigvec_cond`. Each is built from ``||K||_F`` or from the eigenvector matrix, neither of
+  which a general change of basis preserves. Under a decoder or a plain JEPA objective these are
+  properties of the particular representative that was handed over, not of the run, and averaging
+  them across runs is meaningless. :func:`spectral_consensus` withholds them when told the gauge is
+  ``GL(L)``, rather than trusting the caller to remember.
 
 The module is deliberately standalone. It is not a :class:`ituna.metrics.ConsistencyTransform` and
 cannot be passed as ``consistency_transform=``, because :class:`ituna.estimator.ConsistencyEnsemble`
@@ -54,10 +89,14 @@ import scipy.optimize
 
 @dataclass(frozen=True)
 class SpectralConsistencyResult:
-    """Similarity-invariant summary of a set of transfer operators, as returned by :func:`spectral_consistency`.
+    """Gauge-invariant summary of a set of transfer operators, as returned by :func:`spectral_consistency`.
 
     The dataclass is frozen and its arrays are marked non-writeable, so a result is safe to cache and
     to share between callers.
+
+    Most fields here are invariant under *any* similarity and so hold whatever pinned the latent;
+    :attr:`singular_values`, :attr:`departure` and :attr:`eigvec_cond` need the gauge to be
+    orthogonal. The module docstring has the split and the objectives that produce each case.
 
     Attributes
     ----------
@@ -85,10 +124,13 @@ class SpectralConsistencyResult:
     eigvec_cond : ndarray of shape (H,), float
         ``kappa_2(V)`` of the eigenvector matrix of each operator, on LAPACK's unit-2-norm column
         scaling. Large values invalidate the matched distances -- see the module docstring.
+        **Orthogonal gauge only**: a general change of basis sends ``V -> G V`` and moves this.
     singular_values : ndarray of shape (H, L), float
-        Singular values per run, descending.
+        Singular values per run, descending. **Orthogonal gauge only**: these are invariants of
+        ``K -> Q K Q^T`` and not of ``K -> G^-1 K G``.
     departure : ndarray of shape (H,), float
-        Henrici departure from normality, ``sqrt(||K||_F^2 - sum |lambda|^2)``.
+        Henrici departure from normality, ``sqrt(||K||_F^2 - sum |lambda|^2)``. **Orthogonal gauge
+        only**, through ``||K||_F``; the subtracted term is a similarity invariant on its own.
     spectral_radius : ndarray of shape (H,), float
         Largest eigenvalue modulus per run.
     normalised : bool
@@ -111,6 +153,93 @@ class SpectralConsistencyResult:
     spectral_radius: np.ndarray
     normalised: bool
     continuous_eigenvalues: np.ndarray | None
+
+
+@dataclass(frozen=True)
+class SpectralConsensusResult:
+    """Across-run average of the invariants in a :class:`SpectralConsistencyResult`, from :func:`spectral_consensus`.
+
+    Where :class:`SpectralConsistencyResult` reports how far apart independently trained runs are,
+    this reports the single estimate they jointly support and how tightly they support it. The
+    dataclass is frozen and its arrays are marked non-writeable.
+
+    ⚠️ **The dispersion fields bound the reducible half of the uncertainty and no more.** Averaging
+    ``H`` runs shrinks what varies between them by ``sqrt(H)``; it does nothing to a bias they share.
+    Every run compressing onto the same non-invariant subspace leaves :attr:`eigenvalues_scatter`
+    small while the consensus is confidently wrong. This is the module docstring's "detects
+    disagreement, not correctness" inherited one level up: a small scatter is evidence that the gauge
+    was correctly quotiented out, never evidence that the operator is right.
+
+    Attributes
+    ----------
+    gauge : str
+        The gauge group the caller declared, which fixed what could legitimately be averaged.
+    n_runs : int
+        Number of runs averaged, ``H``.
+    reference_id : int
+        Medoid run inherited from the source result, whose eigenvalue order defines the slots.
+    assignment : ndarray of shape (H, L), int
+        The global labelling used, ``source.assignments[reference_id]``. Slot ``i`` of run ``h`` is
+        eigenvalue ``assignment[h, i]`` of that run.
+    matched_eigenvalues : ndarray of shape (H, L), complex
+        Per-run spectra re-indexed into slots, so column ``i`` is one eigenvalue tracked across runs.
+        Exposed so a caller can compute statistics this class does not.
+    eigenvalues_mean : ndarray of shape (L,), complex
+        Consensus spectrum, the per-slot mean.
+    eigenvalues_scatter : ndarray of shape (L,), float
+        Per-slot sample standard deviation, taken as a distance in the complex plane rather than
+        componentwise: ``sqrt(sum_h |lambda_h - mean|^2 / (H - 1))``.
+    eigenvalues_sem : ndarray of shape (L,), float
+        ``eigenvalues_scatter / sqrt(H)``. Read the warning above before quoting it as an error bar.
+    spectral_radius_mean, spectral_radius_sem : float
+        Mean and standard error of the per-run spectral radius. Not the radius of
+        :attr:`eigenvalues_mean`, which is a different and generally smaller number.
+    conjugate_closure_residual : float
+        Worst distance between :attr:`eigenvalues_mean` and its own conjugate under optimal matching,
+        divided by :attr:`conjugate_closure_scale`. Zero exactly when the consensus multiset is
+        closed under conjugation, hence realisable as the spectrum of a real operator. 🔑 **Reported,
+        never enforced.** A non-zero value means the runs disagree about *structure* -- typically a
+        complex pair in one run against two real eigenvalues in another -- and symmetrising it away
+        would hide the one disagreement that cannot be averaged out.
+    conjugate_closure_scale : float
+        Denominator applied above, the mean modulus of the consensus spectrum, or ``1.0`` for a
+        nilpotent consensus. Multiplying recovers the raw distance, as with
+        :attr:`SpectralConsistencyResult.scale`.
+    eigvec_cond_max : float
+        Worst per-run eigenvector conditioning in the source result. A qualifier on everything above,
+        by Bauer-Fike, and a property of the particular representatives rather than of the gauge
+        class when that class is larger than ``O(L)``.
+    continuous_eigenvalues_mean : ndarray of shape (L,), complex, or None
+        Per-slot mean of ``log(lambda) / dt`` when the source result carried it, else None. This is
+        the mean of the logarithms, not the logarithm of :attr:`eigenvalues_mean`; the former is the
+        natural average of rates and the two differ. A zero eigenvalue in any run makes its slot
+        ``-inf``, loudly rather than silently.
+    singular_values_mean, singular_values_sem : ndarray of shape (L,), float, or None
+        Mean and standard error of the descending singular values, which need no matching because
+        the ordering is already canonical. **None under a gauge larger than ``O(L)``.**
+    departure_mean, departure_sem : float, or None
+        Mean and standard error of the Henrici departure from normality. **None under a gauge larger
+        than ``O(L)``.**
+    """
+
+    gauge: str
+    n_runs: int
+    reference_id: int
+    assignment: np.ndarray
+    matched_eigenvalues: np.ndarray
+    eigenvalues_mean: np.ndarray
+    eigenvalues_scatter: np.ndarray
+    eigenvalues_sem: np.ndarray
+    spectral_radius_mean: float
+    spectral_radius_sem: float
+    conjugate_closure_residual: float
+    conjugate_closure_scale: float
+    eigvec_cond_max: float
+    continuous_eigenvalues_mean: np.ndarray | None
+    singular_values_mean: np.ndarray | None
+    singular_values_sem: np.ndarray | None
+    departure_mean: float | None
+    departure_sem: float | None
 
 
 def _validate_operators(operators: Sequence[np.ndarray]) -> np.ndarray:
@@ -160,6 +289,66 @@ def _match_pair(left: np.ndarray, right: np.ndarray) -> tuple[float, float, np.n
     rows, columns = scipy.optimize.linear_sum_assignment(cost)
     matched = cost[rows, columns]
     return float(matched.mean()), float(matched.max()), columns
+
+
+_GAUGE_ORTHOGONAL = "orthogonal"
+_GAUGE_GENERAL_LINEAR = "general_linear"
+
+# Gauges that are recognised, that a latent objective in this family really does produce, and whose
+# invariants are not computed here. Naming them separately keeps a caller who has one of these
+# objectives from reading "unknown gauge" as a typo and silently falling back to `orthogonal`.
+#
+# 🔑 Both of these are a "not yet" and never a "cannot", and neither will be served by adding a gauge
+# here -- see `ituna.gauge` for why the route runs through there instead.
+_UNIMPLEMENTED_GAUGES = {
+    "signed_permutation": (
+        "a product non-Gaussian shape objective on a whitened latent pins the coordinate axes themselves, leaving only signed permutations. Every "
+        "invariant computed here does survive it, so `orthogonal` is sound but wasteful: the smaller gauge additionally admits invariants no "
+        "function of the spectrum can see -- the multiset of |K_ij|, the signed diagonal, the row and column norms -- and averaging only the "
+        "spectral ones discards most of what it buys. Use `ituna.gauge` rather than waiting for a gauge name here; the module docstring explains "
+        "why that is the cheaper route and not merely another one."
+    ),
+    "scaled_signed_permutation": (
+        "the classical ICA class, a signed permutation composed with a per-coordinate scale, which is what a shape objective leaves standing when "
+        "the latent is not whitened. It is NOT a subgroup of O(L), so singular_values, departure and eigvec_cond stop being invariant exactly as "
+        "they do under GL(L); pass `general_linear` for a soundly conservative answer. What it adds over the bare spectrum are the diagonal-scaling "
+        "invariants -- the diagonal of K up to permutation, and products around cycles -- none of which are computed here. As above, `ituna.gauge` "
+        "is the route, once a scale-bearing indeterminacy class exists to fit the alignment with."
+    ),
+}
+
+
+def _validate_gauge(gauge: str) -> str:
+    """Resolve a gauge name, keeping a typo distinguishable from a group whose invariants are not built yet."""
+    if gauge in (_GAUGE_ORTHOGONAL, _GAUGE_GENERAL_LINEAR):
+        return gauge
+    if gauge in _UNIMPLEMENTED_GAUGES:
+        raise NotImplementedError(f"gauge {gauge!r} is recognised but not implemented here: {_UNIMPLEMENTED_GAUGES[gauge]}")
+    raise ValueError(
+        f"unknown gauge {gauge!r}; expected {_GAUGE_ORTHOGONAL!r} or {_GAUGE_GENERAL_LINEAR!r}. "
+        f"Recognised but not implemented: {sorted(_UNIMPLEMENTED_GAUGES)}."
+    )
+
+
+def _run_statistics(values: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Mean, sample scatter and standard error along the leading run axis of a real array."""
+    scatter = values.std(axis=0, ddof=1)
+    return values.mean(axis=0), scatter, scatter / np.sqrt(values.shape[0])
+
+
+def _conjugate_closure(spectrum: np.ndarray) -> tuple[float, float]:
+    """Worst distance from a spectrum to its own conjugate under optimal matching, with the scale applied.
+
+    The statistic is the worst matched distance and not the mean because closure is structural: one
+    broken conjugate pair means the multiset is not the spectrum of any real operator, however well
+    the remaining slots agree.
+    """
+    cost = np.abs(spectrum[:, None] - np.conjugate(spectrum)[None, :])
+    rows, columns = scipy.optimize.linear_sum_assignment(cost)
+    residual = float(cost[rows, columns].max())
+    modulus_mean = float(np.abs(spectrum).mean())
+    scale = modulus_mean if modulus_mean > 0.0 else 1.0
+    return residual / scale, scale
 
 
 def _henrici_departure(operator: np.ndarray, eigenvalues: np.ndarray) -> float:
@@ -302,4 +491,123 @@ def spectral_consistency(
         spectral_radius=_freeze(np.abs(eigenvalues).max(axis=1)),
         normalised=normalise,
         continuous_eigenvalues=continuous_eigenvalues,
+    )
+
+
+def spectral_consensus(
+    result: SpectralConsistencyResult,
+    *,
+    gauge: str = _GAUGE_ORTHOGONAL,
+    closure_warn_threshold: float = 1e-6,
+) -> SpectralConsensusResult:
+    """Average the gauge invariants of a run ensemble into one estimate, with its across-run dispersion.
+
+    Retraining the same model on the same data leaves two kinds of difference between the converged
+    parameters: the gauge, which is exact and carries no information, and residual variance, which is
+    noise. :func:`spectral_consistency` removes the first by computing only invariants. This function
+    attacks the second the only way an ensemble allows -- by averaging -- and reports what is left.
+
+    The averaging needs one thing the pairwise picture does not supply: a *global* labelling of
+    eigenvalues, since optimal matching is computed per pair and is not transitive. The labelling used
+    is the star through the medoid, ``result.assignments[result.reference_id]``, which the source
+    result already computed. That is a star consensus and not the Fréchet mean of the spectra under
+    matching; the two coincide when the runs agree and diverge when they do not, so read
+    :attr:`SpectralConsistencyResult.distance_matrix` before reading this at all. A consensus over
+    runs that disagree is a mean of unlike things, and nothing here can tell you that except the
+    scatter it reports.
+
+    Parameters
+    ----------
+    result : SpectralConsistencyResult
+        Output of :func:`spectral_consistency`. Its spectra, matching and medoid are reused rather
+        than recomputed, so this call performs no eigendecomposition.
+    gauge : {"orthogonal", "general_linear"}, default="orthogonal"
+        The group the training objective actually leaves standing, which decides what may be
+        averaged. Under ``"general_linear"`` -- an autoencoder, or a JEPA with a stop-gradient or EMA
+        target, neither of which constrains the latent metric -- the singular values and the Henrici
+        departure are not invariants, and the corresponding fields are returned as None instead of as
+        numbers that would look perfectly reasonable. See the module docstring for the mapping from
+        anticollapse objective to gauge.
+    closure_warn_threshold : float, default=1e-6
+        Emit a :class:`RuntimeWarning` when the relative conjugate-closure residual exceeds this. The
+        residual is at round-off for spectra that agree structurally and of order one when they do
+        not, so the threshold sits far from both.
+
+    Returns
+    -------
+    SpectralConsensusResult
+        The consensus spectrum with per-slot scatter and standard error, the aggregates the declared
+        gauge permits, and the closure diagnostic.
+
+    Raises
+    ------
+    ValueError
+        If ``gauge`` is not a recognised name.
+    NotImplementedError
+        If ``gauge`` names a group this module recognises but does not compute invariants for.
+
+    Warns
+    -----
+    RuntimeWarning
+        If the consensus spectrum is not closed under conjugation to ``closure_warn_threshold``, so
+        it is not the spectrum of any real operator and at least one slot averages across a
+        structural disagreement.
+    """
+    gauge = _validate_gauge(gauge)
+
+    assignment = np.array(result.assignments[result.reference_id])
+    matched_eigenvalues = np.take_along_axis(result.eigenvalues, assignment, axis=1)
+    n_runs = matched_eigenvalues.shape[0]
+
+    eigenvalues_mean = matched_eigenvalues.mean(axis=0)
+    # Scatter as a distance in the plane, not per component: a real and an imaginary standard
+    # deviation would describe an axis-aligned box, and the eigenvalue cloud has no reason to be one.
+    variance = (np.abs(matched_eigenvalues - eigenvalues_mean) ** 2).sum(axis=0) / (n_runs - 1)
+    eigenvalues_scatter = np.sqrt(variance)
+
+    spectral_radius_mean, _, spectral_radius_sem = _run_statistics(result.spectral_radius)
+    closure_residual, closure_scale = _conjugate_closure(eigenvalues_mean)
+
+    if closure_residual > closure_warn_threshold:
+        warnings.warn(
+            f"the consensus spectrum is not closed under conjugation (relative residual {closure_residual:.3e} against a threshold of "
+            f"{closure_warn_threshold:g}), so it is not the spectrum of any real operator. At least one slot averages a complex eigenvalue of one "
+            "run against a real eigenvalue of another, which is a disagreement about structure rather than a difference the mean can absorb. Read "
+            "matched_eigenvalues per slot rather than eigenvalues_mean.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
+    continuous_eigenvalues_mean = None
+    if result.continuous_eigenvalues is not None:
+        continuous_eigenvalues_mean = _freeze(np.take_along_axis(result.continuous_eigenvalues, assignment, axis=1).mean(axis=0))
+
+    singular_values_mean = singular_values_sem = None
+    departure_mean = departure_sem = None
+    if gauge == _GAUGE_ORTHOGONAL:
+        # Singular values need no matching: descending order is already a canonical labelling.
+        singular_mean, _, singular_sem = _run_statistics(result.singular_values)
+        singular_values_mean, singular_values_sem = _freeze(singular_mean), _freeze(singular_sem)
+        departure_stats = _run_statistics(result.departure)
+        departure_mean, departure_sem = float(departure_stats[0]), float(departure_stats[2])
+
+    return SpectralConsensusResult(
+        gauge=gauge,
+        n_runs=n_runs,
+        reference_id=result.reference_id,
+        assignment=_freeze(assignment),
+        matched_eigenvalues=_freeze(matched_eigenvalues),
+        eigenvalues_mean=_freeze(eigenvalues_mean),
+        eigenvalues_scatter=_freeze(eigenvalues_scatter),
+        eigenvalues_sem=_freeze(eigenvalues_scatter / np.sqrt(n_runs)),
+        spectral_radius_mean=float(spectral_radius_mean),
+        spectral_radius_sem=float(spectral_radius_sem),
+        conjugate_closure_residual=closure_residual,
+        conjugate_closure_scale=closure_scale,
+        eigvec_cond_max=float(result.eigvec_cond.max()),
+        continuous_eigenvalues_mean=continuous_eigenvalues_mean,
+        singular_values_mean=singular_values_mean,
+        singular_values_sem=singular_values_sem,
+        departure_mean=departure_mean,
+        departure_sem=departure_sem,
     )
