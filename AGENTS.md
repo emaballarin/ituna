@@ -26,8 +26,8 @@ are + next action" brief; `/mf:dump` consolidates state before you close.
 
 - **Run what CI runs** before proposing a change:
 
-  ```bash
-  ruff format --check .
-  ruff check .
-  pytest tests/ -v
-  ```
+    ```bash
+    ruff format --check .
+    ruff check .
+    pytest tests/ -v
+    ```

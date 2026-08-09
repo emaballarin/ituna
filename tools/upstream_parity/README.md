@@ -30,7 +30,7 @@ rather than asserted**. Two are recognised:
   below. If upstream ever starts returning a value there, this stops being a repaired crash and
   becomes a real difference, and the check will say so.
 - **the diagonal**, on `include_diagonal=True` — counted as explained only when the observed pair
-  satisfies the identity below *exactly*, per cell. A drift in that relation fails.
+  satisfies the identity below _exactly_, per cell. A drift in that relation fails.
 
 Everything else fails, including a cell that could not be compared in both trees.
 
@@ -61,10 +61,10 @@ their resolved path, their `metrics.py` digest and their numpy version alongside
 Against upstream `5aada31`, on Python 3.14 with numpy 2.5.0. Arms confirmed distinct
 (`metrics.py` sha256 `2e0f1230…` reference, `e6aebe3b…` fork).
 
-| | cells | identical | explained | unexplained | incomparable |
-| --- | --- | --- | --- | --- | --- |
-| whole battery | 192 | 134 | 58 | **0** | 0 |
-| **`include_diagonal=False`** | **96** | 80 | 16 | **0** | 0 |
+|                              | cells  | identical | explained | unexplained | incomparable |
+| ---------------------------- | ------ | --------- | --------- | ----------- | ------------ |
+| whole battery                | 192    | 134       | 58        | **0**       | 0            |
+| **`include_diagonal=False`** | **96** | 80        | 16        | **0**       | 0            |
 
 Of the 58 explained, 42 are the diagonal identity and 16 are the repaired `source_id` crash.
 **Every numeric field agrees across all 96 configurations** on the default path — score,
@@ -78,8 +78,8 @@ repairing it cannot have moved one.
 
 **2. `include_diagonal=True` — an exact, closed-form offset.** Upstream's `_score` averages
 self-alignments, which score 1.0 by construction; this fork ignores the diagonal unconditionally,
-matching that method's own docstring (*"Mean consistency score across all estimator pairs, ignoring
-the diagonal"*). `include_diagonal` governs which alignment models are **fitted**, never what the
+matching that method's own docstring (_"Mean consistency score across all estimator pairs, ignoring
+the diagonal"_). `include_diagonal` governs which alignment models are **fitted**, never what the
 score averages over. The offset is exactly
 
 $$\text{upstream} = (1-f)\cdot\text{fork} + f, \qquad f = \tfrac{1}{K}\ (\texttt{symmetric=False}),\quad f = \tfrac{2}{K+1}\ (\texttt{symmetric=True})$$

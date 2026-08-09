@@ -11,11 +11,13 @@ ituna-fit-distributed-datajoint --sweep-name hippocampus-cebra-time-grid --schem
 You can run the following command instead to submit the same job to a Slurm cluster. Just prepend `sbatch slurm/SCRIPT_NAME.sh` to the command:
 
 **KIT:**
+
 ```bash
 sbatch slurm/KIT_run.sh ituna-fit-distributed-datajoint --sweep-name hippocampus-cebra-time-grid --schema-name ituna_cebra_v1 --cache-dir ~/git/ituna/.cache
 ```
 
 **JUWELS:**
+
 ```bash
 sbatch slurm/JUWELS_run.sh ituna-fit-distributed-datajoint --sweep-name hippocampus-cebra-time-grid --schema-name ituna_cebra_v1 --cache-dir ~/git/ituna/.cache
 ```
@@ -23,6 +25,7 @@ sbatch slurm/JUWELS_run.sh ituna-fit-distributed-datajoint --sweep-name hippocam
 Alternatively, with more compute ressources:
 
 **KIT: 4 GPUs, 20 tasks**
+
 ```bash
 sbatch --gres=gpu:full:4 --ntasks=20 slurm/KIT_run.sh ituna-fit-distributed-datajoint --sweep-name hippocampus-cebra-time-grid --schema-name ituna_cebra_v1 --cache-dir ~/git/ituna/.cache
 ```
@@ -32,7 +35,6 @@ sbatch --gres=gpu:full:4 --ntasks=20 slurm/KIT_run.sh ituna-fit-distributed-data
 ```bash
 sbatch --array=1-8 --ntasks=20 slurm/JUWELS_run.sh ituna-fit-distributed-datajoint --sweep-name hippocampus-cebra-time-grid --schema-name ituna_cebra_v1 --cache-dir ~/git/ituna/.cache
 ```
-
 
 ---
 
@@ -45,6 +47,7 @@ Before running the submission scripts, please ensure your environment is set up 
 ### 1. Conda Installation
 
 The submission scripts rely on a Conda installation to activate the correct Python environment.
+
 - The path to your Conda installation should be specified via the `CONDA_BASE_PATH` environment variable.
 - If this variable is not set, it will default to `$HOME/miniconda3`.
 - The name of the conda environment can be set with `CONDA_ENV_NAME`, which defaults to `ituna`.
@@ -104,8 +107,8 @@ This will use the default SLURM settings in the script (`--gres=gpu:full:1`).
 
 You can leverage Slurm to run many training jobs in parallel across multiple GPUs. This is controlled by the `--gres` and `--ntasks` options of `sbatch`.
 
--   `--gres=gpu:full:X`: This requests `X` GPUs for your job. On the KIT cluster, `X` can be 1, 2, 3, or 4.
--   `--ntasks=Y`: This tells Slurm to run `Y` tasks (processes) for your job.
+- `--gres=gpu:full:X`: This requests `X` GPUs for your job. On the KIT cluster, `X` can be 1, 2, 3, or 4.
+- `--ntasks=Y`: This tells Slurm to run `Y` tasks (processes) for your job.
 
 The `KIT_run.sh` script will automatically distribute the `Y` tasks among the `X` available GPUs in a round-robin fashion. Each task will run the `ituna-fit-distributed-datajoint` command with the same arguments you provided.
 
@@ -118,9 +121,10 @@ sbatch --gres=gpu:full:4 --ntasks=16 slurm/KIT_run.sh ituna-fit-distributed-data
 ```
 
 In this case:
--   Slurm allocates 4 GPUs to your job.
--   Slurm starts 16 parallel tasks.
--   The script assigns each task to one of the 4 GPUs. Each GPU will be shared by 4 tasks (`16 tasks / 4 GPUs = 4 tasks per GPU`). The script manages this by setting the `CUDA_VISIBLE_DEVICES` environment variable for each task.
+
+- Slurm allocates 4 GPUs to your job.
+- Slurm starts 16 parallel tasks.
+- The script assigns each task to one of the 4 GPUs. Each GPU will be shared by 4 tasks (`16 tasks / 4 GPUs = 4 tasks per GPU`). The script manages this by setting the `CUDA_VISIBLE_DEVICES` environment variable for each task.
 
 This setup is ideal for hyperparameter sweeps where each job is independent. The `ituna-fit-distributed-datajoint` script with the `--order random` argument (the default) will ensure that each of the 16 parallel processes picks a different, random, unprocessed model from the sweep to train.
 
@@ -144,12 +148,12 @@ sbatch --ntasks=1 slurm/JUWELS_run.sh ituna-fit-distributed-datajoint --sweep-na
 
 #### Slurm Configuration Notes
 
--   **Account:** You may need to edit the script to specify your account with `#SBATCH --account=<your-account>`. The script defaults to `hai_mechanistic`.
--   **GPU Resources**: All nodes on the `booster` and `develbooster` partitions are equipped with 4 A100 GPUs. You request resources per node (`--nodes=X`).
--   **Partitions:**
-    -   `booster`: For regular jobs. It's recommended to specify a walltime with `--time=HH:MM:SS` to get your jobs started more quickly.
-    -   `develbooster`: For short, development jobs. This partition provides faster access but requires you to specify `--time=02:00:00` or less.
--   **Time Limit**: It is always a good practice to specify a time limit for your job with `--time`.
+- **Account:** You may need to edit the script to specify your account with `#SBATCH --account=<your-account>`. The script defaults to `hai_mechanistic`.
+- **GPU Resources**: All nodes on the `booster` and `develbooster` partitions are equipped with 4 A100 GPUs. You request resources per node (`--nodes=X`).
+- **Partitions:**
+    - `booster`: For regular jobs. It's recommended to specify a walltime with `--time=HH:MM:SS` to get your jobs started more quickly.
+    - `develbooster`: For short, development jobs. This partition provides faster access but requires you to specify `--time=02:00:00` or less.
+- **Time Limit**: It is always a good practice to specify a time limit for your job with `--time`.
 
 #### Running Large Batch Jobs
 
@@ -174,6 +178,7 @@ sbatch --array=1-16 --ntasks=20 --time=08:00:00 slurm/JUWELS_run.sh ituna-fit-di
 ```
 
 This command submits a job array with 16 jobs. Each of these 16 jobs will:
+
 - Run for a maximum of 8 hours.
 - Request one node with 4 GPUs.
 - Run 20 model training tasks in parallel, distributed across the 4 GPUs (5 tasks per GPU).

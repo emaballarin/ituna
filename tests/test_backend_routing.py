@@ -91,8 +91,17 @@ def test_backend_route_specificity_resolution():
             BACKEND_ROUTES={},
         ):
             config.register_backend_route(method="fit", backend="disk_cache")
-            config.register_backend_route(model_class=metrics.ConsistencyTransform, backend="disk_cache_distributed", backend_kwargs={"trigger_type": "manual"})
-            config.register_backend_route(method="fit", model_class=metrics.ConsistencyTransform, backend="datajoint", backend_kwargs={"schema_name": "x"})
+            config.register_backend_route(
+                model_class=metrics.ConsistencyTransform,
+                backend="disk_cache_distributed",
+                backend_kwargs={"trigger_type": "manual"},
+            )
+            config.register_backend_route(
+                method="fit",
+                model_class=metrics.ConsistencyTransform,
+                backend="datajoint",
+                backend_kwargs={"schema_name": "x"},
+            )
 
             backend_name, kwargs = config.resolve_backend_route(method="fit", model_class=metrics.PairwiseConsistency)
             assert backend_name == "datajoint"

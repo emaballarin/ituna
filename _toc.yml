@@ -1,17 +1,17 @@
 format: jb-book
 root: README
 parts:
-  - caption: Tutorials
-    chapters:
-      - file: docs/tutorials/quickstart
-      - file: docs/tutorials/core
-      - file: docs/tutorials/backends
-  - caption: Guides
-    chapters:
-      - file: docs/guides/sklearn_caching
-  - caption: Demos
-    chapters:
-      - file: docs/demos/cebra_best_practices
-  - caption: Development
-    chapters:
-      - file: CONTRIBUTING
+    - caption: Tutorials
+      chapters:
+          - file: docs/tutorials/quickstart
+          - file: docs/tutorials/core
+          - file: docs/tutorials/backends
+    - caption: Guides
+      chapters:
+          - file: docs/guides/sklearn_caching
+    - caption: Demos
+      chapters:
+          - file: docs/demos/cebra_best_practices
+    - caption: Development
+      chapters:
+          - file: CONTRIBUTING

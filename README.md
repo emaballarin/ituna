@@ -34,11 +34,11 @@ Think of it as a **unit test for reproducibility** of learned embeddings.
 
 - **sklearn-compatible**: Works with any transformer implementing `fit`, `transform`, and standard sklearn conventions
 - **Built-in indeterminacy classes**:
-  - `Identity` - no transformation needed (model is already fully identifiable)
-  - `Permutation` - handles sign flips and component reordering (e.g., FastICA)
-  - `Orthogonal` - rotation and reflection only (e.g., an encoder trained to produce isotropic latents)
-  - `Linear` - linear transformation alignment (e.g., PCA)
-  - `Affine` - linear transformation with intercept (e.g., CEBRA)
+    - `Identity` - no transformation needed (model is already fully identifiable)
+    - `Permutation` - handles sign flips and component reordering (e.g., FastICA)
+    - `Orthogonal` - rotation and reflection only (e.g., an encoder trained to produce isotropic latents)
+    - `Linear` - linear transformation alignment (e.g., PCA)
+    - `Affine` - linear transformation with intercept (e.g., CEBRA)
 - **Consistency scoring**: Quantifies how stable embeddings are across runs
 - **Embedding alignment**: Returns aligned embeddings for downstream analysis
 - **Operator-level consistency**: Compares and averages the gauge invariants of a learned linear predictor across runs, with no alignment step (`ituna.spectral`)
@@ -51,6 +51,7 @@ pip install ituna
 ```
 
 or alternative install from source
+
 ```bash
 pip install git+https://github.com/dynamical-inference/ituna.git
 ```
@@ -95,7 +96,7 @@ print("Embedding shape:", emb.shape)
 
 ## Operator-level consistency and consensus
 
-`ConsistencyEnsemble` compares *embeddings*, aligning each run to a reference under an indeterminacy
+`ConsistencyEnsemble` compares _embeddings_, aligning each run to a reference under an indeterminacy
 class. When the model also learns a linear transfer operator on the latent — a Koopman-style
 predictor `z_{t+1} = K z_t` — there is a second, complementary route: compare invariants of `K` under
 the gauge the training objective leaves standing, which needs no alignment step at all.
@@ -119,15 +120,15 @@ reporting what is left — it does nothing to a bias every run shares, and the d
 that line falls. Which quantities may legitimately be averaged is decided by the anticollapse half of
 the training objective, not by this package:
 
-| anticollapse objective                                            | residual gauge on `z` | invariant under it                                        |
-| ----------------------------------------------------------------- | --------------------- | --------------------------------------------------------- |
-| decoder / autoencoder, or JEPA with a stop-gradient or EMA target | `GL(L)`               | the spectrum                                              |
-| VICReg, or SIGReg against an isotropic Gaussian                   | `O(L)`                | the spectrum, singular values, departure from normality   |
+| anticollapse objective                                            | residual gauge on `z` | invariant under it                                      |
+| ----------------------------------------------------------------- | --------------------- | ------------------------------------------------------- |
+| decoder / autoencoder, or JEPA with a stop-gradient or EMA target | `GL(L)`               | the spectrum                                            |
+| VICReg, or SIGReg against an isotropic Gaussian                   | `O(L)`                | the spectrum, singular values, departure from normality |
 
 Pass `gauge="general_linear"` for the first row: the aggregates that are not invariant there come
 back as `None` rather than as numbers that would look perfectly reasonable. The module docstring
 carries the full table — including the smaller gauges a product non-Gaussian target produces — and
-states what each diagnostic does *not* establish.
+states what each diagnostic does _not_ establish.
 
 ## Documentation
 

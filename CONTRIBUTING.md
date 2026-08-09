@@ -43,18 +43,18 @@ rc/x.y.z          release candidates, created when preparing a release
 
 1. Create a branch from `main`:
 
-   ```bash
-   git checkout main && git pull
-   git checkout -b feature/my-feature
-   ```
+    ```bash
+    git checkout main && git pull
+    git checkout -b feature/my-feature
+    ```
 
 2. Make your changes, commit, and push:
 
-   ```bash
-   git add .
-   git commit -m "Add my feature"
-   git push -u origin feature/my-feature
-   ```
+    ```bash
+    git add .
+    git commit -m "Add my feature"
+    git push -u origin feature/my-feature
+    ```
 
 3. Open a pull request to `main` on GitHub. The [build workflow](https://github.com/dynamical-inference/ituna/actions/workflows/build.yml) will run automatically to check tests, linting, and that the package builds.
 
@@ -79,6 +79,7 @@ ruff check --fix .
 ```
 
 Key style rules:
+
 - Line length: 160 characters
 - Import sorting: single-line imports, sorted within sections
 - Python support: 3.8 - 3.14
@@ -173,6 +174,7 @@ For a consistent build environment with auto-rebuild on file changes:
 ```
 
 This will:
+
 1. Build the Docker image with all dependencies
 2. Mount the current directory into the container
 3. Build the docs and start a server at http://localhost:8000
@@ -239,10 +241,10 @@ python -c "import ituna; print(ituna.__version__)"
 
 ### Quick reference
 
-| Step | Action |
-|------|--------|
-| Check | `ruff format --check . && ruff check . && pytest tests/ -v` |
-| Parity | `python tools/upstream_parity/compare.py` |
-| Tag | `git tag -s vx.y.z -m "Release x.y.z"` |
-| Publish | `git push origin main vx.y.z` |
-| Verify | `pip install --index-url https://fury.ballarin.cc/pypi ituna==x.y.z` |
+| Step    | Action                                                               |
+| ------- | -------------------------------------------------------------------- |
+| Check   | `ruff format --check . && ruff check . && pytest tests/ -v`          |
+| Parity  | `python tools/upstream_parity/compare.py`                            |
+| Tag     | `git tag -s vx.y.z -m "Release x.y.z"`                               |
+| Publish | `git push origin main vx.y.z`                                        |
+| Verify  | `pip install --index-url https://fury.ballarin.cc/pypi ituna==x.y.z` |

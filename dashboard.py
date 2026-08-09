@@ -5,7 +5,6 @@ import traceback
 import pandas as pd
 import streamlit as st
 
-import ituna
 import ituna.config
 
 try:
@@ -142,7 +141,9 @@ def show_main_dashboard():
     # Sidebar for navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.selectbox(
-        "Choose a page", ["Overview", "ModelTraining Details", "Model Details", "Dataset Details", "Jobs Management"], index=0
+        "Choose a page",
+        ["Overview", "ModelTraining Details", "Model Details", "Dataset Details", "Jobs Management"],
+        index=0,
     )  # Default to Overview
 
     if page == "Overview":
@@ -716,13 +717,24 @@ def get_jobs_for_sweep(_backend, sweep_name, status_filter="all"):
             return pd.DataFrame(), {}
 
         # The only computed table is TrainedModelsTable
-        tables_info = [{"table": _backend.tables.TrainedModelsTable(), "key_table": _backend.tables.ModelTrainingTable(), "name": "TrainedModels"}]
+        tables_info = [
+            {
+                "table": _backend.tables.TrainedModelsTable(),
+                "key_table": _backend.tables.ModelTrainingTable(),
+                "name": "TrainedModels",
+            }
+        ]
 
         jobs_summary = {}
         all_jobs_list = []
 
         for table_info in tables_info:
-            job_stats = get_sweep_jobs_for_table(restrictions=exp_configs, table=table_info["table"], key_table=table_info["key_table"], schema=_backend.schema)
+            job_stats = get_sweep_jobs_for_table(
+                restrictions=exp_configs,
+                table=table_info["table"],
+                key_table=table_info["key_table"],
+                schema=_backend.schema,
+            )
             jobs_summary[table_info["name"]] = job_stats
 
             # Collect jobs for combined dataframe
@@ -893,7 +905,9 @@ def display_detailed_jobs_view(combined_jobs_df, jobs_state):
 
     # Let user select which sweeps to view
     jobs_state["selected_sweeps_for_view"] = st.multiselect(
-        "Select sweeps to include in the detailed view:", options=jobs_state["matched_sweeps"], default=jobs_state["matched_sweeps"]
+        "Select sweeps to include in the detailed view:",
+        options=jobs_state["matched_sweeps"],
+        default=jobs_state["matched_sweeps"],
     )
 
     # Filter jobs based on selected sweeps
@@ -930,7 +944,14 @@ def display_jobs_table_and_actions(jobs_df, jobs_state):
     if "error_message" in jobs_display_df.columns:
         jobs_display_df["error_message"] = jobs_display_df["error_message"].astype(str).str[:100] + "..."
 
-    event = st.dataframe(jobs_display_df[display_cols], width="stretch", height=400, on_select="rerun", selection_mode="multi-row", key="jobs_df")
+    event = st.dataframe(
+        jobs_display_df[display_cols],
+        width="stretch",
+        height=400,
+        on_select="rerun",
+        selection_mode="multi-row",
+        key="jobs_df",
+    )
 
     if event.selection.rows != jobs_state["selected_rows"]:
         jobs_state["selected_rows"] = event.selection.rows
@@ -964,7 +985,11 @@ def manage_selected_jobs(jobs_df, jobs_state):
         if st.button("Delete Selected Error Jobs", type="secondary", help="Removes only the error status jobs from the queue"):
             delete_jobs_by_status(jobs_df, jobs_state["selected_rows"], "error")
     with col3:
-        if st.button("Delete Selected Reserved Jobs", type="secondary", help="Removes only the reserved status jobs from the queue"):
+        if st.button(
+            "Delete Selected Reserved Jobs",
+            type="secondary",
+            help="Removes only the reserved status jobs from the queue",
+        ):
             delete_jobs_by_status(jobs_df, jobs_state["selected_rows"], "reserved")
 
     st.caption("ℹ️ Deleting jobs removes them from the DataJoint job queue but does not delete experiment configurations or results.")
@@ -988,7 +1013,10 @@ def manage_selected_jobs(jobs_df, jobs_state):
     col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("Load Details for Selected Jobs", help="Displays detailed information including error messages and configuration data for selected jobs"):
+        if st.button(
+            "Load Details for Selected Jobs",
+            help="Displays detailed information including error messages and configuration data for selected jobs",
+        ):
             jobs_state["show_details"] = True
             st.rerun()
     with col2:
@@ -1223,7 +1251,11 @@ def main():
             backend = ituna._backends.get_backend()
             st.session_state.backend = backend
             st.session_state.db_connected = True
-            st.session_state.connection_params = {"host": backend.host, "user": backend.user, "schema": backend.schema_name}
+            st.session_state.connection_params = {
+                "host": backend.host,
+                "user": backend.user,
+                "schema": backend.schema_name,
+            }
             show_main_dashboard()
 
         except Exception as e:

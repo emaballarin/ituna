@@ -5,7 +5,7 @@ Project-specific context for anyone — person or agent — working in this repo
 ## What the package is
 
 `ituna` measures **empirical identifiability**: retrain the same estimator under several seeds, align
-the resulting embeddings under a declared *indeterminacy class*, and score how consistent they are.
+the resulting embeddings under a declared _indeterminacy class_, and score how consistent they are.
 Making that class a first-class object — `Identity`, `Permutation`, `Linear`, `Affine` — turns
 "identifiable up to what?" into a parameter rather than an assumption.
 
@@ -20,10 +20,10 @@ Schmidt and Steffen Schneider (Helmholtz Munich), MIT-licensed. This repository 
 
 Two things, and they are worth keeping separate:
 
-| | range | scope | origin |
-| --- | --- | --- | --- |
-| backend routing and transform caching | `5aada31..4858961` | 36 files, +4148 / −338 | upstream's own branch, unmerged there |
-| bug fixes | `4858961..HEAD`, 9 commits | 17 files, +758 / −80 | this fork |
+|                                       | range                      | scope                  | origin                                |
+| ------------------------------------- | -------------------------- | ---------------------- | ------------------------------------- |
+| backend routing and transform caching | `5aada31..4858961`         | 36 files, +4148 / −338 | upstream's own branch, unmerged there |
+| bug fixes                             | `4858961..HEAD`, 9 commits | 17 files, +758 / −80   | this fork                             |
 
 The fix stratum is 287 changed lines across 7 library files, roughly 460 lines of added tests, and
 some documentation. Only `metrics.py` (54 lines) touches the scoring path.

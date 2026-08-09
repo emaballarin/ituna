@@ -2,29 +2,26 @@ title: iTuna Documentation
 author: Tobias Schmidt, Steffen Schneider
 
 html:
-  use_repository_button: true
-  use_issues_button: true
+    use_repository_button: true
+    use_issues_button: true
 
 repository:
-  url: https://github.com/dynamical-inference/ituna
-  branch: main
+    url: https://github.com/dynamical-inference/ituna
+    branch: main
 
 exclude_patterns:
-  - .github/*
-  - .cursor/**
-  - slurm/*
-  - third_party/*
-  - _build/*
+    - .github/*
+    - .cursor/**
+    - slurm/*
+    - third_party/*
+    - _build/*
 
 execute:
-  execute_notebooks: "off"
-  timeout: 300
+    execute_notebooks: "off"
+    timeout: 300
 
 sphinx:
-  config:
-    html_js_files:
-      - https://cdn.plot.ly/plotly-latest.min.js
-    nb_mime_priority_overrides: [
-      ['html', 'application/vnd.plotly.v1+json', 10],
-      ['html', 'text/html', 0]
-    ]
+    config:
+        html_js_files:
+            - https://cdn.plot.ly/plotly-latest.min.js
+        nb_mime_priority_overrides: [["html", "application/vnd.plotly.v1+json", 10], ["html", "text/html", 0]]

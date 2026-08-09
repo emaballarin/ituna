@@ -17,7 +17,7 @@ operator is the matrix satisfying ``Z[t + 1] = Z[t] @ operator``, and an alignme
 satisfying ``Z_reference = Z_source @ alignment``. Substituting the second into the first gives the
 only formula here::
 
-    operator_in_reference_frame = alignment^-1 @ operator @ alignment
+    operator_in_reference_frame = inv(alignment) @ operator @ alignment
 
 🔴 **A transposed or inverted convention does not fail loudly, and the obvious test does not catch
 it.** For an orthogonal alignment, ``Q^-1 K Q`` and ``Q K Q^-1`` are *both* orthogonal similarities
