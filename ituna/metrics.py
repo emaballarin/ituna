@@ -140,6 +140,122 @@ class Permutation(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2Sco
         return self.permutation_matrix_ @ np.diag(self.signs_)
 
 
+class ScaledPermutation(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2ScoreMixin):
+    """
+    Scaled permutation indeterminacy - the monomial group ``P @ Lambda``, signs free.
+
+    The classical ICA indeterminacy: components may be permuted, flipped, and rescaled one coordinate
+    at a time. `Permutation` applies permutation and sign but never scale, so it is the right class
+    only for a latent whose scale is already pinned -- by whitening, or by a unit-norm constraint. An
+    objective that shapes the latent without whitening it leaves this larger group standing, and
+    scoring such a run under `Permutation` reports an inconsistency that is a gauge move.
+
+    Between this class and `Linear` there is no intermediate: `Linear` admits every invertible map,
+    so it is blind to the frame entirely. Choose by what the objective actually pins, never by
+    convenience -- a superset absorbs into the fitted alignment precisely the disagreement the
+    measurement exists to detect.
+
+    The fit
+    -------
+    The assignment is the same `\\|corr\\|` cost `Permutation` uses, and is reused rather than
+    reinvented because correlation is scale-invariant: no diagonal can perturb the matching. The
+    scale is then the least-squares optimum per matched pair, ``d_j = <x_i, y_j> / <x_i, x_i>``,
+    which is what `R2ScoreMixin` measures against. **Its sign carries the flip**, so there is no
+    separate `signs_` attribute here; a negative `scale_` entry is a reflected coordinate.
+
+    A source coordinate that is identically zero makes that quotient ``0 / 0``. It is set to ``0.0``,
+    which is the correct least-squares answer -- no scale maps a dead coordinate onto a live one --
+    and the consequence is a singular `alignment_`. That is deliberate rather than papered over:
+    `ituna.gauge.pushforward` already rejects a singular alignment as a finding about the runs, so
+    conditioning stays the responsibility of one place instead of two.
+
+    Interpreting the score
+    ----------------------
+    🔴 **Its chance floor is 0, not the -1 that `Permutation` carries.** `Permutation` cannot rescale,
+    so a mismatched pair is punished for predicting the wrong magnitude and lands near -1; the free
+    scale here can shrink to nothing, so the worst this class does is predict nothing and score 0.
+    The two floors differ by a full unit and the scores are not on one axis -- a `Permutation` score
+    needs no chance caveat and this one does.
+
+    In-sample it barely flatters itself at all, where `Linear` and `Affine` carry roughly ``L / N``
+    and should be scored held out. On unrelated data at ``N = 200``, ``L = 16``: `Linear` 0.077,
+    `Affine` 0.082, this class **0.0002**. Two things buy that. It fits one parameter per output
+    coordinate rather than `L`; and the assignment is made on correlations *of absolute values*,
+    which carry no signed information, so on unrelated data the fitted scale collapses towards zero
+    instead of latching onto the largest of ``L^2`` noise correlations. Matching on ``|corr(x, y)|``
+    instead raises the same figure to 0.014, which is how that mechanism was confirmed rather than
+    assumed. Measurements at one size, not a formula.
+
+    ⚠️ A pure per-coordinate rescale such as ``diag(3, 1, 1, 1)`` is a **gauge move** under this class
+    and scores 1.0. Elsewhere in this repository that matrix appears as the violation `Linear` is
+    blind to, which it is -- but only relative to `O(L)`. The same matrix is a genuine difference
+    under `Orthogonal` and no difference at all here, which is the whole reason the class has to be
+    chosen from the objective.
+    """
+
+    def __init__(self):
+        self.permutation_matrix_ = None
+        self.is_fitted_ = False
+
+    def fit(self, X, y):
+        """
+        Find the optimal signed permutation and per-coordinate scale aligning X with y.
+        Hungarian assignment on absolute correlation, then least squares for each matched scale.
+        """
+        n_samples = min(X.shape[0], y.shape[0])
+        X = X[:n_samples]
+        y = y[:n_samples]
+
+        # Absolute values, so the assignment is blind to both sign and scale; the diagonal below
+        # recovers them together.
+        X_abs = np.abs(X)
+        y_abs = np.abs(y)
+
+        cost_matrix = np.zeros((X.shape[1], y.shape[1]))
+        for i in range(X.shape[1]):
+            for j in range(y.shape[1]):
+                corr = np.corrcoef(X_abs[:, i], y_abs[:, j])[0, 1]
+                cost_matrix[i, j] = -corr if not np.isnan(corr) else 0
+
+        row_ind, col_ind = scipy.optimize.linear_sum_assignment(cost_matrix)
+
+        self.permutation_matrix_ = np.zeros((X.shape[1], y.shape[1]))
+        for i, j in zip(row_ind, col_ind):
+            self.permutation_matrix_[i, j] = 1
+
+        # One least-squares scale per matched pair, signed. A dead source coordinate has no scale
+        # that maps it anywhere, and zero is the least-squares answer rather than a fallback.
+        scale = np.ones(y.shape[1])
+        for i, j in zip(row_ind, col_ind):
+            energy = float(X[:, i] @ X[:, i])
+            scale[j] = float(X[:, i] @ y[:, j]) / energy if energy > 0.0 else 0.0
+
+        self.scale_ = scale
+        self.is_fitted_ = True
+        return self
+
+    def predict(self, X):
+        """Apply the fitted permutation and per-coordinate scale."""
+        if not self.is_fitted_:
+            raise ValueError("Model must be fitted before prediction")
+
+        X_permuted = X @ self.permutation_matrix_
+        return X_permuted * self.scale_.reshape(1, -1)
+
+    @property
+    def alignment_(self) -> np.ndarray:
+        """The map this class applies, so that ``predict(X) == X @ alignment_``.
+
+        This is ``permutation_matrix_ @ diag(scale_)``, and as with `Permutation.alignment_` the bare
+        `permutation_matrix_` is not it -- here it discards the scales as well as the signs.
+        """
+        if not self.is_fitted_:
+            raise AttributeError("ScaledPermutation instance is not fitted yet; `alignment_` is available after calling fit")
+
+        assert self.permutation_matrix_ is not None  # guaranteed by is_fitted_ above; stated for the type checker
+        return self.permutation_matrix_ @ np.diag(self.scale_)
+
+
 class Orthogonal(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2ScoreMixin):
     """
     Orthogonal indeterminacy - alignment restricted to O(L) by the Procrustes solution.

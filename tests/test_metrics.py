@@ -55,7 +55,103 @@ def test_affine(data, affine_mixed_data):
     np.testing.assert_almost_equal(affine.score(data, affine_mixed_data), 1.0)
 
 
-ALIGNMENT_BEARING = [metrics.Identity, metrics.Permutation, metrics.Orthogonal, metrics.Linear]
+ALIGNMENT_BEARING = [
+    metrics.Identity,
+    metrics.Permutation,
+    metrics.ScaledPermutation,
+    metrics.Orthogonal,
+    metrics.Linear,
+]
+
+
+def test_scaled_permutation_recovers_the_ica_class_and_stays_narrower_than_linear():
+    """The positive controls, and -- the row that makes the others mean anything -- the negative one.
+
+    A class that quietly fitted a full linear map would score 1.0 on every row here and look like a
+    success, so the rotation case is what separates "the scale was added" from "the constraint was
+    dropped".
+    """
+    rng = np.random.default_rng(20260810)
+    latent = rng.normal(size=(4096, 4))
+    permutation = np.eye(4)[[2, 0, 3, 1]]
+
+    def score(indeterminacy, mixing):
+        target = latent @ mixing
+        return indeterminacy.fit(latent, target).score(latent, target)
+
+    # Positive: the classical ICA class is a gauge move here, with or without a sign flip, and is
+    # emphatically not one for `Permutation` -- which is the gap this class fills.
+    for mixing in (permutation @ np.diag([3.0, 0.5, 1.0, 2.0]), permutation @ np.diag([3.0, -0.5, 1.0, 2.0])):
+        np.testing.assert_allclose(score(metrics.ScaledPermutation(), mixing), 1.0, atol=1e-10)
+        assert score(metrics.Permutation(), mixing) < 0.7
+
+    # A pure per-coordinate rescale is likewise a gauge move, though it is a genuine difference
+    # under `Orthogonal`. The same matrix, two classes, two correct and opposite answers.
+    rescale = np.diag([3.0, 1.0, 1.0, 1.0])
+    np.testing.assert_allclose(score(metrics.ScaledPermutation(), rescale), 1.0, atol=1e-10)
+    assert score(metrics.Orthogonal(), rescale) < 0.95
+
+    # 🔴 Negative: a rotation mixes coordinates, so it is a real violation of this gauge and must
+    # stay well clear of `Linear`, which is blind to it.
+    rotation = np.linalg.qr(rng.normal(size=(4, 4)))[0]
+    widened = score(metrics.ScaledPermutation(), rotation)
+    np.testing.assert_allclose(score(metrics.Linear(), rotation), 1.0, atol=1e-10)
+    assert score(metrics.Permutation(), rotation) <= widened < 0.95
+
+
+def test_a_scaled_permutation_never_scores_below_a_permutation():
+    """Group containment, made executable: `Permutation` is a subgroup, so its score cannot be the higher one."""
+    rng = np.random.default_rng(11)
+
+    for _ in range(40):
+        source = rng.normal(size=(512, 5))
+        if rng.random() < 0.5:
+            mixing = rng.normal(size=(5, 5))
+        else:
+            mixing = np.eye(5)[rng.permutation(5)] @ np.diag(rng.normal(size=5))
+        target = source @ mixing + 0.1 * rng.normal(size=(512, 5))
+
+        widened = metrics.ScaledPermutation().fit(source, target).score(source, target)
+        tightest = metrics.Permutation().fit(source, target).score(source, target)
+        assert widened >= tightest - 1e-9, f"scaled {widened} fell below plain {tightest}"
+
+
+def test_the_chance_floors_of_the_two_permutation_classes_differ_by_a_full_unit():
+    """🔴 The two scores are not on one axis, and the gap is about 1.
+
+    `Permutation` cannot rescale, so an unrelated pair is punished for predicting the wrong magnitude
+    and lands near -1. The free scale here can shrink to nothing, so the worst this class does is
+    predict nothing and score 0. Reading a `ScaledPermutation` score with `Permutation` intuition
+    therefore overstates the agreement, which is the opposite of the usual direction of that mistake.
+    """
+    rng = np.random.default_rng(3)
+    widened, tightest = [], []
+
+    for _ in range(20):
+        unrelated = (rng.normal(size=(1024, 8)), rng.normal(size=(1024, 8)))
+        widened.append(metrics.ScaledPermutation().fit(*unrelated).score(*unrelated))
+        tightest.append(metrics.Permutation().fit(*unrelated).score(*unrelated))
+
+    assert -0.05 < np.mean(widened) < 0.05, f"expected a floor at 0, got {np.mean(widened)}"
+    assert np.mean(tightest) < -0.8, f"expected a floor near -1, got {np.mean(tightest)}"
+
+
+def test_a_dead_source_coordinate_gives_a_zero_scale_rather_than_a_nan():
+    """A collapsed coordinate has no scale that maps it anywhere; zero is the least-squares answer.
+
+    The consequence is a singular `alignment_`, which is left for `ituna.gauge.pushforward` to reject
+    as a finding about the runs rather than being softened here.
+    """
+    rng = np.random.default_rng(5)
+    source = rng.normal(size=(256, 3))
+    source[:, 1] = 0.0
+    target = rng.normal(size=(256, 3))
+
+    fitted = metrics.ScaledPermutation().fit(source, target)
+
+    assert np.all(np.isfinite(fitted.scale_))
+    assert np.all(np.isfinite(fitted.predict(source)))
+    assert np.isclose(np.linalg.det(fitted.alignment_), 0.0)
 
 
 @pytest.mark.parametrize("init_metric", ALIGNMENT_BEARING)

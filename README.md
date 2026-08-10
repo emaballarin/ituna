@@ -35,7 +35,8 @@ Think of it as a **unit test for reproducibility** of learned embeddings.
 - **sklearn-compatible**: Works with any transformer implementing `fit`, `transform`, and standard sklearn conventions
 - **Built-in indeterminacy classes**:
     - `Identity` - no transformation needed (model is already fully identifiable)
-    - `Permutation` - handles sign flips and component reordering (e.g., FastICA)
+    - `Permutation` - sign flips and component reordering, no scale (e.g., FastICA on a whitened latent)
+    - `ScaledPermutation` - the same, plus a per-coordinate scale: the classical ICA class, for a latent that is not whitened
     - `Orthogonal` - rotation and reflection only (e.g., an encoder trained to produce isotropic latents)
     - `Linear` - linear transformation alignment (e.g., PCA)
     - `Affine` - linear transformation with intercept (e.g., CEBRA)
@@ -93,6 +94,30 @@ print("Consistency score:", ensemble.score(X))
 emb = ensemble.transform(X)
 print("Embedding shape:", emb.shape)
 ```
+
+### Choosing the class
+
+Pick the class that matches the gauge group the training objective actually leaves free, never a
+convenient superset. A larger class absorbs into the fitted alignment exactly the disagreement the
+measurement exists to detect: `Linear` scores `1.0` on a pair of runs whose frames are unrelated,
+which is not a false positive — it is `Linear` correctly answering a question about subspaces when
+the question at hand was about frames. Concretely, on the same pair of runs:
+
+| what relates the two runs                | `Permutation` | `ScaledPermutation` | `Orthogonal` | `Linear` |
+| ---------------------------------------- | ------------: | ------------------: | -----------: | -------: |
+| signed permutation with per-axis scale   |        0.5764 |          **1.0000** |       0.5764 |   1.0000 |
+| per-axis rescale `diag(3, 1, 1, 1)`      |        0.8889 |          **1.0000** |       0.8889 |   1.0000 |
+| a rotation, mixing the coordinates       |        0.7239 |              0.7483 |   **1.0000** |   1.0000 |
+
+Two riders that change how a number should be read:
+
+- **Chance floors differ by class, and not in the direction most people expect.** `Permutation`
+  cannot rescale, so an unrelated pair lands near **−1** and needs no chance caveat.
+  `ScaledPermutation` can shrink its scale to zero, so its floor is **0** — the two are not on one
+  axis.
+- **`Linear` and `Affine` flatter themselves in-sample by roughly `L/N`**, so score them held out
+  when the number has to carry weight. On unrelated data at `N = 200`, `L = 16`: `Linear` `0.077`,
+  `Affine` `0.082`, `ScaledPermutation` `0.0002`.
 
 ## Operator-level consistency and consensus
 

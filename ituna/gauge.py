@@ -62,9 +62,10 @@ the *embeddings*, where it is again a linear assignment, and it is implemented a
 So the route is this module: fit the alignment on embeddings, :func:`pushforward` every operator into
 the common frame, and average them entrywise. That uses every one of the extra invariants implicitly
 -- entrywise agreement in a shared frame is strictly stronger than agreement of their multisets --
-and costs nothing beyond what is already here. The scaled class additionally needs a scale-bearing
-indeterminacy class to fit the alignment with, which iTuna does not yet have; that, and not the
-invariants, is its blocker.
+and costs nothing beyond what is already here. The scaled class needs a scale-bearing indeterminacy
+class to fit its alignment with, and :class:`ituna.metrics.ScaledPermutation` now supplies one -- so
+the two gauges are in the same position, both waiting on the operator consensus below and on nothing
+peculiar to either.
 
 Two constraints the unbuilt half will have to respect, recorded now because they are easy to miss
 later:

@@ -313,7 +313,8 @@ _UNIMPLEMENTED_GAUGES = {
         "the latent is not whitened. It is NOT a subgroup of O(L), so singular_values, departure and eigvec_cond stop being invariant exactly as "
         "they do under GL(L); pass `general_linear` for a soundly conservative answer. What it adds over the bare spectrum are the diagonal-scaling "
         "invariants -- the diagonal of K up to permutation, and products around cycles -- none of which are computed here. As above, `ituna.gauge` "
-        "is the route, once a scale-bearing indeterminacy class exists to fit the alignment with."
+        "is the route. The scale-bearing indeterminacy class that route needs now exists -- `ituna.metrics.ScaledPermutation` -- so what remains "
+        "is the operator consensus in `ituna.gauge`, exactly as for `signed_permutation` and no longer anything particular to this gauge."
     ),
 }
 

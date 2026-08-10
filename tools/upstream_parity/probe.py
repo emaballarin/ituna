@@ -23,6 +23,16 @@ import sys
 import numpy as np
 
 N_SAMPLES, N_FEATURES = 256, 6
+
+# Upstream's complete set of indeterminacy classes at the reference commit, and therefore the shared
+# surface of the two arms -- not a selection from the fork's, which also has `Orthogonal` and
+# `ScaledPermutation`. Do not extend this with a fork-only class: `load` would resolve it on one arm
+# and raise on the other, and `compare.py` explains exactly two mechanisms and files everything else
+# as UNEXPLAINED, so a purely additive class would fail the build. The corollary is worth stating
+# too, since a green run reads like coverage: parity says nothing whatever about the fork-only
+# classes, only that these four still report what they always did. `classes_present` below checks
+# each arm really does have all four, so a class going missing shows up rather than thinning the
+# battery in silence.
 CLASSES = ["Identity", "Permutation", "Linear", "Affine"]
 REGIMES = ["identical", "signed_permutation", "rotation", "independent"]
 K_VALUES = [2, 3, 5]
