@@ -130,6 +130,23 @@ back as `None` rather than as numbers that would look perfectly reasonable. The 
 carries the full table — including the smaller gauges a product non-Gaussian target produces — and
 states what each diagnostic does _not_ establish.
 
+Where the operators themselves have to be compared rather than only their invariants, `ituna.gauge`
+carries one run's operator into another's latent frame:
+
+```python
+from ituna import gauge, metrics
+
+alignment = metrics.Orthogonal(allow_reflection=True).fit(X=source_latent, y=reference_latent)
+common_frame = gauge.pushforward(source_operator, alignment.alignment_)
+```
+
+`alignment_` is the single matrix a fitted indeterminacy applies — `predict(X)` is `X @ alignment_` —
+and it is what `pushforward` expects. Reach for it rather than for a class's own
+attribute: `Permutation` keeps its sign flips in a separate `signs_` and `Linear` stores
+scikit-learn's transposed `coef_`, and either substitution yields an operator that is wrong in a way
+no invariant above can detect. `Affine` deliberately has no `alignment_` — a translation does not act
+on an operator by conjugation, so there is nothing for it to return.
+
 ## Documentation
 
 Full documentation is available at **[dynamical-inference.github.io/ituna](https://dynamical-inference.github.io/ituna/)**.

@@ -55,6 +55,45 @@ def test_affine(data, affine_mixed_data):
     np.testing.assert_almost_equal(affine.score(data, affine_mixed_data), 1.0)
 
 
+ALIGNMENT_BEARING = [metrics.Identity, metrics.Permutation, metrics.Orthogonal, metrics.Linear]
+
+
+@pytest.mark.parametrize("init_metric", ALIGNMENT_BEARING)
+def test_alignment_is_exactly_the_map_the_class_applies(data, permuted_data, init_metric):
+    """`alignment_` carries one contract across the classes: ``predict(X) == X @ alignment_``.
+
+    Each class stores its fitted map under its own name and its own orientation -- `permutation_matrix_` with a separate
+    `signs_`, `orthogonal_`, scikit-learn's transposed `coef_` -- and `ituna.gauge` needs exactly one matrix. Rebuilding
+    it at the call site is the mistake this attribute removes. Note that the identity asserted here holds whatever the
+    fit quality, so this tests the contract and never the alignment.
+    """
+    metric = init_metric().fit(data, permuted_data)
+
+    np.testing.assert_allclose(metric.predict(data), data @ metric.alignment_, atol=1e-10)
+    assert metric.alignment_.shape == (data.shape[1], permuted_data.shape[1])
+
+
+@pytest.mark.parametrize("init_metric", ALIGNMENT_BEARING)
+def test_alignment_is_unavailable_before_fitting(init_metric):
+    """An unfitted alignment must raise rather than hand back an empty or stale matrix."""
+    with pytest.raises(AttributeError, match="not fitted"):
+        _ = init_metric().alignment_
+
+
+def test_affine_has_no_alignment_because_a_translation_does_not_conjugate(data, affine_mixed_data):
+    """`Affine` is the one class with no `alignment_`, and the absence is the point.
+
+    Its intercept is not part of any change of latent frame, so no matrix conjugates an operator into another run's
+    frame; returning `coef_.T` as though the intercept were absent would produce a plausible wrong operator rather than
+    an error. Refusing in code is what stops `ituna.gauge`'s constraint from being prose that a caller can miss.
+    """
+    affine = metrics.Affine().fit(data, affine_mixed_data)
+
+    assert np.any(affine.intercept_), "the fixture must actually carry an intercept, or this test proves nothing"
+    with pytest.raises(AttributeError, match="no `alignment_`"):
+        _ = affine.alignment_
+
+
 @pytest.mark.parametrize(
     "init_metric",
     [

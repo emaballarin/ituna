@@ -86,7 +86,8 @@ def test_pushforward_bridges_an_alignment_fitted_by_metrics_end_to_end():
     fitted = metrics.Orthogonal().fit(X=source, y=reference)
 
     np.testing.assert_allclose(fitted.orthogonal_, alignment, atol=1e-10)
-    np.testing.assert_allclose(gauge.pushforward(source_operator, fitted.orthogonal_), NON_NORMAL, atol=1e-10)
+    np.testing.assert_allclose(fitted.alignment_, fitted.orthogonal_, atol=0.0)  # they coincide here, and only here
+    np.testing.assert_allclose(gauge.pushforward(source_operator, fitted.alignment_), NON_NORMAL, atol=1e-10)
 
 
 def test_pushforward_is_correct_for_a_non_orthogonal_alignment():
@@ -105,8 +106,49 @@ def test_pushforward_of_the_identity_alignment_is_a_no_op():
     np.testing.assert_allclose(gauge.pushforward(NON_NORMAL, np.eye(3)), NON_NORMAL, atol=0.0)
 
 
+def test_the_dropped_signs_hazard_is_caught_only_by_agreement():
+    """🔴 `metrics.Permutation.permutation_matrix_` is not the alignment, and no invariant can say so.
+
+    `predict` applies ``permutation_matrix_ @ diag(signs_)``, so conjugating by the bare permutation matrix drops every
+    sign flip. Writing ``S = diag(signs_)``, the result differs from the correct one by ``S (.) S`` -- itself a
+    similarity -- so `ituna.spectral` reports the two as the same operator down to the last bit. This is the transposed
+    convention's trap one level lower, and `metrics.Permutation.alignment_` exists so no caller meets it.
+    """
+    rng = _rng()
+    signs = np.diag([1.0, -1.0, 1.0])  # at least one flip, or the hazard cannot fire at all
+    true_alignment = np.eye(3)[[2, 0, 1]] @ signs
+
+    latent = rng.normal(size=(256, 3))
+    fitted = metrics.Permutation().fit(X=latent, y=latent @ true_alignment)
+    bare = fitted.permutation_matrix_  # what a caller reaching for "the permutation" would pick up
+    assert bare is not None
+
+    np.testing.assert_allclose(fitted.alignment_, true_alignment, atol=1e-12)
+    assert np.linalg.norm(bare - true_alignment) > 0.1
+
+    copy = _gauge_copy(NON_NORMAL, true_alignment)
+    correct = gauge.pushforward(copy, fitted.alignment_)
+    dropped = gauge.pushforward(copy, bare)
+
+    # Agreement separates them, and by a wide margin rather than at the tolerance.
+    np.testing.assert_allclose(correct, NON_NORMAL, atol=1e-12)
+    assert np.linalg.norm(dropped - NON_NORMAL) > 0.1
+    np.testing.assert_allclose(dropped, signs @ correct @ signs, atol=1e-12)
+
+    # And this is why it has to be an equality test: the whole diagnostic surface is blind to the difference.
+    for candidate in (correct, dropped):
+        result = spectral.spectral_consistency([NON_NORMAL, candidate])
+        np.testing.assert_allclose(result.consistency, 1.0, atol=1e-9)
+        np.testing.assert_allclose(result.singular_values[0], result.singular_values[1], atol=1e-10)
+        np.testing.assert_allclose(result.departure[0], result.departure[1], atol=1e-9)
+
+
 def test_a_permutation_alignment_relabels_rather_than_mixes():
-    """`metrics.Permutation` produces a signed permutation, and pushing forward by it must be an exact relabelling."""
+    """A signed permutation, built here rather than fitted, must push forward as an exact relabelling.
+
+    The fitted route is covered by `test_the_dropped_signs_hazard_is_caught_only_by_agreement`; this one keeps the
+    algebra independent of whether `metrics.Permutation` recovers anything.
+    """
     rng = _rng()
     permutation = np.eye(3)[rng.permutation(3)] @ np.diag([1.0, -1.0, 1.0])
     copy = _gauge_copy(NON_NORMAL, permutation)

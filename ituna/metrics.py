@@ -27,15 +27,31 @@ class Identity(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2ScoreM
 
     def __init__(self):
         self.is_fitted_ = False
+        self._alignment = None
 
     def fit(self, X, y):
-        """Fit the identity transformation (no-op)."""
+        """Fit the identity transformation (no-op), recording only the width `alignment_` needs."""
+        array = np.asarray(X)
+        self._alignment = np.eye(array.shape[1]) if array.ndim == 2 else None
         self.is_fitted_ = True
         return self
 
     def predict(self, X):
         """Return X unchanged."""
         return X
+
+    @property
+    def alignment_(self) -> np.ndarray:
+        """The map this class applies, so that ``predict(X) == X @ alignment_``; here the identity.
+
+        See `Permutation.alignment_` for why the indeterminacy classes share this one name.
+        """
+        if not self.is_fitted_:
+            raise AttributeError("Identity instance is not fitted yet; `alignment_` is available after calling fit")
+        if self._alignment is None:
+            raise AttributeError("Identity was fitted on a non-2-dimensional array, so there is no square alignment to expose")
+
+        return self._alignment
 
 
 class Permutation(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2ScoreMixin):
@@ -99,6 +115,29 @@ class Permutation(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2Sco
         X_permuted = X @ self.permutation_matrix_
         # Apply signs to the permuted columns
         return X_permuted * self.signs_.reshape(1, -1)
+
+    @property
+    def alignment_(self) -> np.ndarray:
+        """The map this class applies, so that ``predict(X) == X @ alignment_``.
+
+        🔴 This is ``permutation_matrix_ @ diag(signs_)`` and **not** `permutation_matrix_` alone. The sign flips are a
+        genuine part of the gauge, and the bare permutation matrix drops every one of them -- which is silently wrong in
+        a way no invariant can detect. Writing ``S = diag(signs_)``, conjugating by ``permutation_matrix_`` rather than
+        by the full map differs from the correct answer by ``S (.) S``, and that is itself a similarity, so eigenvalues,
+        singular values, departure from normality and eigenvector conditioning all agree to the last bit. Every
+        diagnostic in `ituna.spectral` is blind to the mistake, so only an equality test against a known original catches
+        it; `tests/test_gauge.py` carries one.
+
+        This attribute exists so that no caller of `ituna.gauge.pushforward` has to reconstruct the map, and it is the
+        one name every indeterminacy class here answers to. Its shape is ``(X.shape[1], y.shape[1])`` and need not be
+        square, since `fit` does not require it; `ituna.gauge.pushforward` rejects a non-square alignment at its own
+        boundary rather than this one.
+        """
+        if not self.is_fitted_:
+            raise AttributeError("Permutation instance is not fitted yet; `alignment_` is available after calling fit")
+
+        assert self.permutation_matrix_ is not None  # guaranteed by is_fitted_ above; stated for the type checker
+        return self.permutation_matrix_ @ np.diag(self.signs_)
 
 
 class Orthogonal(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2ScoreMixin):
@@ -185,6 +224,17 @@ class Orthogonal(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin, R2Scor
 
         return self.orthogonal_.T
 
+    @property
+    def alignment_(self) -> np.ndarray:
+        """The map this class applies, so that ``predict(X) == X @ alignment_``; here exactly `orthogonal_`.
+
+        See `Permutation.alignment_` for why the indeterminacy classes share this one name.
+        """
+        if not getattr(self, "is_fitted_", False):
+            raise AttributeError("Orthogonal instance is not fitted yet; `alignment_` is available after calling fit")
+
+        return self.orthogonal_
+
 
 class Linear(sklearn.linear_model.LinearRegression):
     """
@@ -195,6 +245,19 @@ class Linear(sklearn.linear_model.LinearRegression):
     def __init__(self, *, copy_X=True, n_jobs=None, positive=False):
         super().__init__(fit_intercept=False, copy_X=copy_X, n_jobs=n_jobs, positive=positive)
 
+    @property
+    def alignment_(self) -> np.ndarray:
+        """The map this class applies, so that ``predict(X) == X @ alignment_``.
+
+        `LinearRegression` stores `coef_` with shape (n_targets, n_features) and predicts ``X @ coef_.T``, so the
+        alignment is the **transpose** of the fitted coefficients and never `coef_` itself. `fit_intercept` is False
+        here, so this really is the whole map. See `Permutation.alignment_`.
+        """
+        if not hasattr(self, "coef_"):
+            raise AttributeError("Linear instance is not fitted yet; `alignment_` is available after calling fit")
+
+        return self.coef_.T
+
 
 class Affine(sklearn.linear_model.LinearRegression):
     """
@@ -203,6 +266,22 @@ class Affine(sklearn.linear_model.LinearRegression):
 
     def __init__(self, *, copy_X=True, n_jobs=None, positive=False):
         super().__init__(fit_intercept=True, copy_X=copy_X, n_jobs=n_jobs, positive=positive)
+
+    @property
+    def alignment_(self) -> np.ndarray:
+        """Deliberately unavailable: an affine map is not a change of latent frame.
+
+        Every other indeterminacy class here answers to `alignment_`, the single matrix with ``predict(X) == X @
+        alignment_``. This one also fits an intercept, and a translation does not act on a transfer operator by
+        conjugation at all, so there is no pushforward to compute -- returning ``coef_.T`` as though the intercept were
+        absent would produce a plausible and wrong operator rather than an error. Score with this class; carry operators
+        between frames with one of the others.
+        """
+        raise AttributeError(
+            "Affine has no `alignment_`: its fitted intercept is not part of any change of latent frame, so no matrix conjugates an "
+            "operator into another run's frame. Use `Linear`, `Orthogonal`, `Permutation` or `Identity` when the alignment is to be "
+            "passed to `ituna.gauge.pushforward`."
+        )
 
 
 class PairwiseConsistencyArray(np.ndarray):

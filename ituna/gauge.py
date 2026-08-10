@@ -11,11 +11,11 @@ fitted by :class:`ituna.metrics.PairwiseConsistency`; nothing here re-estimates 
 The convention, which is the whole risk
 ---------------------------------------
 
-Everything in iTuna is row-major: an embedding is ``(n_samples, n_features)`` and
-:meth:`ituna.metrics.Orthogonal.predict` is ``X @ orthogonal_``. This module follows that, so an
-operator is the matrix satisfying ``Z[t + 1] = Z[t] @ operator``, and an alignment is the matrix
-satisfying ``Z_reference = Z_source @ alignment``. Substituting the second into the first gives the
-only formula here::
+Everything in iTuna is row-major: an embedding is ``(n_samples, n_features)`` and every indeterminacy
+class predicts ``X @ alignment_``. This module follows that, so an operator is the matrix satisfying
+``Z[t + 1] = Z[t] @ operator``, and an alignment is the matrix satisfying
+``Z_reference = Z_source @ alignment``. Substituting the second into the first gives the only formula
+here::
 
     operator_in_reference_frame = inv(alignment) @ operator @ alignment
 
@@ -40,7 +40,10 @@ Scope, and what is deliberately not here yet
 
 Only :func:`pushforward` is implemented. Extracting the per-run alignment matrices off a fitted
 :class:`~ituna.metrics.PairwiseConsistency`, and averaging the pushed-forward operators into a
-consensus operator, are not built.
+consensus operator, are not built. What that extractor needs from each fitted indeterminacy is now
+settled, though: it reads ``alignment_``, which every class exposes and which is the map the class
+actually applies -- so the remaining work is walking the fitted estimators, not deciding what to take
+from them.
 
 🔑 **Why this module, and not another gauge name in** :func:`ituna.spectral.spectral_consensus`.
 That function raises :class:`NotImplementedError` for ``"signed_permutation"`` and
@@ -67,7 +70,9 @@ Two constraints the unbuilt half will have to respect, recorded now because they
 later:
 
 - :class:`ituna.metrics.Affine` cannot be used. Its intercept does not act on an operator by
-  conjugation at all, so there is no pushforward to compute, only a silent wrong answer.
+  conjugation at all, so there is no pushforward to compute, only a silent wrong answer. ✅ This one
+  is no longer only a note: `Affine` is the single indeterminacy class that raises on ``alignment_``
+  rather than returning one, so the mistake is unavailable rather than merely documented.
 - :class:`ituna.metrics.Orthogonal` must be fitted with ``allow_reflection=True``. Two runs whose
   latents genuinely differ by a reflection are related by an element of ``O(L)`` that ``SO(L)``
   cannot represent; the alignment would then absorb the mismatch into a poor fit, and averaging
@@ -107,10 +112,17 @@ def pushforward(
 
     Both arguments are in iTuna's row-major convention: ``operator`` satisfies
     ``Z[t + 1] = Z[t] @ operator`` in the source run's own frame, and ``alignment`` satisfies
-    ``Z_reference = Z_source @ alignment``, which is what
-    :attr:`ituna.metrics.Orthogonal.orthogonal_` and
-    :attr:`ituna.metrics.Permutation.permutation_matrix_` are. The result satisfies the first
-    relation in the reference frame. See the module docstring before changing either convention.
+    ``Z_reference = Z_source @ alignment``, which is exactly the ``alignment_`` of a fitted
+    indeterminacy class. The result satisfies the first relation in the reference frame. See the
+    module docstring before changing either convention.
+
+    🔴 **Pass ``alignment_`` and not a class's own matrix.** They are not always the same thing:
+    :class:`ituna.metrics.Permutation` keeps its sign flips in a separate ``signs_``, so its
+    ``permutation_matrix_`` is the gauge element with every flip discarded, and
+    :class:`ituna.metrics.Linear` stores scikit-learn's *transposed* ``coef_``. Either substitution
+    returns a finite, plausible operator that no invariant in :mod:`ituna.spectral` can distinguish
+    from the right one -- see :attr:`ituna.metrics.Permutation.alignment_` for why -- so ``alignment_``
+    is the only safe source.
 
     Parameters
     ----------
