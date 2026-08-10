@@ -155,6 +155,25 @@ class ScaledPermutation(sklearn.base.BaseEstimator, sklearn.base.RegressorMixin,
     convenience -- a superset absorbs into the fitted alignment precisely the disagreement the
     measurement exists to detect.
 
+    Where signs are free, and where they are not
+    -------------------------------------------
+    Signs are free here, which is right when the shape target is **symmetric**. A sign flip negates
+    every odd moment, so an *asymmetric* target pins sign and leaves the positive monomial group
+    ``P @ Lambda_+`` instead -- and this class is then a superset of it, by the very argument above.
+    The same gap sits one row down: against whitening plus an asymmetric target the gauge is the bare
+    permutations, and `Permutation` is the too-loose class there. Neither positive variant exists.
+
+    Both would err **loose** rather than tight, which is the flattering direction: two runs differing
+    by ``f`` sign flips alone score 1.0 under either class where a sign-pinning one would give
+    ``(L - f) / L``, so about 0.5 for random signs at any `L`, and 0.0 when every coordinate flips.
+
+    ⚠️ Considered and declined rather than overlooked. No objective these classes are used for has an
+    asymmetric target -- a sliced-characteristic-function shape penalty against a product
+    non-Gaussian target leaves the *signed* permutations, which `Permutation` matches exactly -- and
+    admitting signs keeps this class consistent with the one it extends. Build the positive variants
+    when an objective actually needs them, not before; the shape of the hole is recorded here so that
+    the question does not have to be re-derived to be dismissed again.
+
     The fit
     -------
     The assignment is the same `\\|corr\\|` cost `Permutation` uses, and is reused rather than
