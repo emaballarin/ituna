@@ -103,11 +103,11 @@ measurement exists to detect: `Linear` scores `1.0` on a pair of runs whose fram
 which is not a false positive — it is `Linear` correctly answering a question about subspaces when
 the question at hand was about frames. Concretely, on the same pair of runs:
 
-| what relates the two runs                | `Permutation` | `ScaledPermutation` | `Orthogonal` | `Linear` |
-| ---------------------------------------- | ------------: | ------------------: | -----------: | -------: |
-| signed permutation with per-axis scale   |        0.5764 |          **1.0000** |       0.5764 |   1.0000 |
-| per-axis rescale `diag(3, 1, 1, 1)`      |        0.8889 |          **1.0000** |       0.8889 |   1.0000 |
-| a rotation, mixing the coordinates       |        0.7239 |              0.7483 |   **1.0000** |   1.0000 |
+| what relates the two runs              | `Permutation` | `ScaledPermutation` | `Orthogonal` | `Linear` |
+| -------------------------------------- | ------------: | ------------------: | -----------: | -------: |
+| signed permutation with per-axis scale |        0.5764 |          **1.0000** |       0.5764 |   1.0000 |
+| per-axis rescale `diag(3, 1, 1, 1)`    |        0.8889 |          **1.0000** |       0.8889 |   1.0000 |
+| a rotation, mixing the coordinates     |        0.7239 |              0.7483 |   **1.0000** |   1.0000 |
 
 Two riders that change how a number should be read:
 

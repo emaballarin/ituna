@@ -11,16 +11,16 @@ alignment, exactly the disagreement the measurement exists to detect.
 
 ## Why it bites here specifically
 
-An objective that pins a frame does so by *shrinking* the group. Whitening the state and matching
+An objective that pins a frame does so by _shrinking_ the group. Whitening the state and matching
 a product target on the residual gives `I = KKᵀ + D`, equivalently `K = ΔO`, and the four cases
 come out:
 
-| what is imposed             | gauge left free              | matching class |
-| --------------------------- | ---------------------------- | -------------- |
-| whitening alone             | `O(L)`                       | `Orthogonal`   |
-| product shape target alone  | monomial `PΛ`                | **none**       |
-| both                        | signed permutations (`B_L`)  | `Permutation`  |
-| neither                     | `GL(L)`                      | `Linear`       |
+| what is imposed            | gauge left free             | matching class |
+| -------------------------- | --------------------------- | -------------- |
+| whitening alone            | `O(L)`                      | `Orthogonal`   |
+| product shape target alone | monomial `PΛ`               | **none**       |
+| both                       | signed permutations (`B_L`) | `Permutation`  |
+| neither                    | `GL(L)`                     | `Linear`       |
 
 The whole point of the shape term is to move a run from row 1 to row 3 — from a continuous group
 to a finite one. Scoring that run under `Linear` re-admits every element of `GL(L)` at alignment
@@ -31,10 +31,10 @@ that the two runs span a common subspace, which was never in question.
 
 A deliberately scrambled frame — a genuine violation, not a gauge move:
 
-| indeterminacy | score      | source                                                    |
-| ------------- | ---------- | --------------------------------------------------------- |
-| `Linear`      | **1.0000** | blindness check on a frame-pinned latent                  |
-| `Permutation` | **0.02**   | same pair, same data                                       |
+| indeterminacy | score      | source                                   |
+| ------------- | ---------- | ---------------------------------------- |
+| `Linear`      | **1.0000** | blindness check on a frame-pinned latent |
+| `Permutation` | **0.02**   | same pair, same data                     |
 
 And on a pair differing by `A = diag(3, 1, 1, 1)`, driven through `ConsistencyEnsemble`:
 
