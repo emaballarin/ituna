@@ -6,29 +6,38 @@ Project-specific context for anyone — person or agent — working in this repo
 
 `ituna` measures **empirical identifiability**: retrain the same estimator under several seeds, align
 the resulting embeddings under a declared _indeterminacy class_, and score how consistent they are.
-Making that class a first-class object — `Identity`, `Permutation`, `Linear`, `Affine` — turns
-"identifiable up to what?" into a parameter rather than an assumption.
+Making that class a first-class object — `Identity`, `Permutation`, `Linear`, `Affine` upstream;
+`ScaledPermutation` and `Orthogonal` added here — turns "identifiable up to what?" into a
+parameter rather than an assumption.
 
 Public surface: `ConsistencyEnsemble` (sklearn-compatible, wraps any estimator),
-`metrics.PairwiseConsistency`, the four indeterminacy classes, and a pluggable execution backend
-(in-memory, disk cache, DataJoint).
+`metrics.PairwiseConsistency`, the six indeterminacy classes, a pluggable execution backend
+(in-memory, disk cache, DataJoint), and — fork-only — `spectral` (`spectral_consistency`,
+`spectral_consensus`) and `gauge` (`pushforward`) for learned linear operators.
 
 Upstream is [`dynamical-inference/ituna`](https://github.com/dynamical-inference/ituna) by Tobias
 Schmidt and Steffen Schneider (Helmholtz Munich), MIT-licensed. This repository is a fork of it.
 
 ## What the fork adds
 
-Two things, and they are worth keeping separate:
+Four strata, and they are worth keeping separate:
 
-|                                       | range                      | scope                  | origin                                |
-| ------------------------------------- | -------------------------- | ---------------------- | ------------------------------------- |
-| backend routing and transform caching | `5aada31..4858961`         | 36 files, +4148 / −338 | upstream's own branch, unmerged there |
-| bug fixes                             | `4858961..HEAD`, 9 commits | 17 files, +758 / −80   | this fork                             |
+|                                         | range                         | scope                  | origin                                |
+| --------------------------------------- | ----------------------------- | ---------------------- | ------------------------------------- |
+| backend routing and transform caching   | `5aada31..4858961`            | 36 files, +4148 / −338 | upstream's own branch, unmerged there |
+| bug fixes                               | `4858961..0991bdf`, 9 commits | 17 files, +758 / −80   | this fork                             |
+| re-platform, parity check, input raises | `0991bdf..9f1bf91`, 3 commits | 21 files, +842 / −268  | this fork                             |
+| operator-facing classes and modules     | `9f1bf91..fddb11c`, 7 commits | 22 files, +2876 / −109 | this fork, no upstream counterpart    |
+
+The fourth stratum is additive: `Orthogonal`, `ScaledPermutation`, one canonical `alignment_` per
+class, `ituna/spectral.py` and `ituna/gauge.py`, with design notes in `docs/notes/`. Existing
+attributes stay public (`17147d5`). The parity check covers upstream's classes only —
+`tools/upstream_parity/probe.py` cannot see a fork-only class.
 
 The fix stratum is 287 changed lines across 7 library files, roughly 460 lines of added tests, and
 some documentation. Only `metrics.py` (54 lines) touches the scoring path.
 
-**Keep the two ranges separable** — do not rebase them together. They answer different questions
+**Keep the strata separable** — do not rebase them together. They answer different questions
 about where a behaviour came from, and that is cheap to preserve and expensive to reconstruct.
 
 Roughly what the fixes address, newest first: a `PairwiseConsistency.transform(..., source_id=…)`
@@ -58,10 +67,12 @@ result.
 ```
 ituna/                  metrics.py (scoring + indeterminacy classes), estimator.py
                         (ConsistencyEnsemble), sklearn.py, config.py, _cache_guard.py,
+                        spectral.py and gauge.py (fork-only, operator-valued latents),
                         _backends/{in_memory,disk_cache,datajoint}
 tests/                  pytest
 tools/upstream_parity/  the parity check and its result
-docs/                   jupyter-book sources; tutorials are paired .py / .ipynb, kept in sync by a test
+docs/                   jupyter-book sources; tutorials are paired .py / .ipynb, kept in sync by a test;
+                        docs/notes/ holds design notes outside the book build
 slurm/                  cluster launch scripts
 third_party/            vendored wheels for optional backends
 ```
@@ -74,5 +85,10 @@ third_party/            vendored wheels for optional backends
   `vX.Y.Z` produces a clean `X.Y.Z`; any other commit produces a `.devN` version.
 - **Wheels go to GemFury**, on every push to `main` and on tags. Publishing to PyPI is deliberately
   not wired — that namespace belongs to upstream.
-- **Formatting and linting are `ruff`**, configured by `ruff.toml`, and CI checks both.
+- **Formatting and linting are `ruff`**, configured by `ruff.toml`, and CI checks both. ⚠️ Its
+  `ruff.toml` is upstream's, kept as is — `line-length = 160` and ruff's own isort settings,
+  unlike the maintainer's shared config (120, reorder-python-imports). A formatter run with the
+  shared config produces a sweep that this repository's CI rejects; reconcile with
+  `ruff check --select I --fix` and `ruff format` under this `ruff.toml`, as `9c0fae4` did.
+  `docs/**` is excluded from ruff, so a sweep there has to be reverted rather than reconciled.
 - `scratch/` is a local workspace and is never committed.
